@@ -34,6 +34,8 @@ canvas { display: block; }
 }
 #hud-top h1 { font-size: 20px; font-weight: 600; }
 #hud-top .hint { font-size: 12px; color: #8c93a8; margin-top: 4px; }
+#hud-top .fly-hint { color: #ffd27a; }
+.hidden { display: none; }
 
 #controls {
   position: fixed;
@@ -67,6 +69,11 @@ canvas { display: block; }
   font-size: 13px;
 }
 #controls button:hover { background: rgba(90, 120, 220, 0.45); }
+#controls button.active {
+  background: rgba(255, 180, 60, 0.35);
+  border-color: rgba(255, 200, 90, 0.7);
+  color: #ffe6b0;
+}
 #controls label { font-size: 12px; color: #cfd3e0; cursor: pointer; }
 #controls input[type="range"] { width: 140px; accent-color: #7a96ff; }
 #speed-val { font-size: 12px; color: #8c93a8; min-width: 42px; }
