@@ -14,6 +14,7 @@
   <header id="hud-top">
     <h1>🌌 太阳系漫游</h1>
     <p class="hint">鼠标左键拖拽旋转 · 滚轮缩放 · 右键平移 · 点击行星名飞过去</p>
+    <p class="hint fly-hint hidden" id="fly-hint">🚀 自由飞行中：W/S 前后 · A/D 左右 · Q/E 升降 · Shift 加速 · 移动鼠标转向 · 滚轮调速 · ESC 退出</p>
   </header>
 
   <!-- 控制面板 -->
@@ -21,6 +22,7 @@
     <div class="row">
       <button id="play-toggle" title="暂停 / 继续">⏸ 暂停</button>
       <button id="reset-view" title="回到全景视角">🏠 全景</button>
+      <button id="fly-toggle" title="自由飞行：以飞船视角在太阳系中漫游">🚀 自由飞行</button>
       <span class="label">速度</span>
       <input id="speed" type="range" min="0" max="500" value="60" />
       <span id="speed-val">60×</span>

@@ -40,6 +40,102 @@ controls.dampingFactor = 0.06;
 controls.minDistance = 12;
 controls.maxDistance = 1200;
 
+// ---------- 自由飞行（飞船视角）----------
+// 一套自包含的第一人称漫游控制：指针锁定后用鼠标转向，WASD/QE 平移。
+// 启用时关闭 OrbitControls，让用户真正驾驶相机在太阳系中飞行、近距离观测行星。
+const fly = {
+  active: false,
+  speed: 40,           // 基础速度（单位/秒）
+  yaw: 0,
+  pitch: 0,
+  keys: Object.create(null),
+  vel: new THREE.Vector3(),
+};
+
+function enterFlyMode() {
+  if (fly.active) return;
+  fly.active = true;
+  focusTarget = null;            // 解除聚焦跟随
+  controls.enabled = false;
+  // 用当前相机朝向初始化 yaw/pitch
+  const e = new THREE.Euler().setFromQuaternion(camera.quaternion, "YXZ");
+  fly.yaw = e.y;
+  fly.pitch = e.x;
+  document.getElementById("fly-toggle").classList.add("active");
+  document.getElementById("fly-hint").classList.remove("hidden");
+  renderer.domElement.requestPointerLock?.();
+}
+
+function exitFlyMode() {
+  if (!fly.active) return;
+  fly.active = false;
+  fly.keys = Object.create(null);
+  fly.vel.set(0, 0, 0);
+  controls.enabled = true;
+  controls.target.copy(camera.position).add(
+    new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).multiplyScalar(40)
+  );
+  document.getElementById("fly-toggle").classList.remove("active");
+  document.getElementById("fly-hint").classList.add("hidden");
+  if (document.pointerLockElement) document.exitPointerLock();
+}
+
+document.addEventListener("pointerlockchange", () => {
+  // 用户按 ESC 退出指针锁时，同步退出飞行模式
+  if (fly.active && !document.pointerLockElement) exitFlyMode();
+});
+
+document.addEventListener("mousemove", (e) => {
+  if (!fly.active || !document.pointerLockElement) return;
+  const sens = 0.0022;
+  fly.yaw -= e.movementX * sens;
+  fly.pitch -= e.movementY * sens;
+  const lim = Math.PI / 2 - 0.01;
+  fly.pitch = Math.max(-lim, Math.min(lim, fly.pitch));
+});
+
+window.addEventListener("keydown", (e) => {
+  if (!fly.active) return;
+  fly.keys[e.code] = true;
+});
+window.addEventListener("keyup", (e) => {
+  fly.keys[e.code] = false;
+});
+
+// 飞行时用滚轮调整基础速度
+renderer.domElement.addEventListener("wheel", (e) => {
+  if (!fly.active) return;
+  e.preventDefault();
+  fly.speed = Math.max(4, Math.min(400, fly.speed * (e.deltaY < 0 ? 1.15 : 0.87)));
+}, { passive: false });
+
+function updateFly(dt) {
+  // 朝向：由 yaw/pitch 合成（YXZ 顺序，先偏航后俯仰）
+  camera.quaternion.setFromEuler(new THREE.Euler(fly.pitch, fly.yaw, 0, "YXZ"));
+
+  const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+  const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+  const up = new THREE.Vector3(0, 1, 0); // 世界上方向，升降更直观
+
+  const dir = new THREE.Vector3();
+  const k = fly.keys;
+  if (k.KeyW || k.ArrowUp) dir.add(forward);
+  if (k.KeyS || k.ArrowDown) dir.sub(forward);
+  if (k.KeyD || k.ArrowRight) dir.add(right);
+  if (k.KeyA || k.ArrowLeft) dir.sub(right);
+  if (k.KeyE || k.Space) dir.add(up);
+  if (k.KeyQ) dir.sub(up);
+
+  const boost = (k.ShiftLeft || k.ShiftRight) ? 4 : 1;
+  const target = dir.lengthSq() > 0
+    ? dir.normalize().multiplyScalar(fly.speed * boost)
+    : new THREE.Vector3();
+
+  // 平滑加减速，手感更顺滑
+  fly.vel.lerp(target, Math.min(1, dt * 6));
+  camera.position.addScaledVector(fly.vel, dt);
+}
+
 // ---------- 灯光 ----------
 scene.add(new THREE.AmbientLight(0x335, 0.55)); // 微弱环境光，避免背面纯黑
 // decay=0：关闭距离衰减，让远处的海王星也能被照亮（牺牲物理真实，换取可视性）
@@ -347,13 +443,17 @@ function animate() {
     }
   }
 
-  // 跟随聚焦目标
-  if (focusTarget) {
-    focusTarget.getWorldPosition(tmpVec);
-    controls.target.lerp(tmpVec, 0.1);
+  // 自由飞行：驾驶相机漫游
+  if (fly.active) {
+    updateFly(dt);
+  } else {
+    // 跟随聚焦目标
+    if (focusTarget) {
+      focusTarget.getWorldPosition(tmpVec);
+      controls.target.lerp(tmpVec, 0.1);
+    }
+    controls.update();
   }
-
-  controls.update();
   renderer.render(scene, camera);
   labelRenderer.render(scene, camera);
 }
@@ -367,10 +467,16 @@ playBtn.addEventListener("click", () => {
 });
 
 document.getElementById("reset-view").addEventListener("click", () => {
+  exitFlyMode();
   focusTarget = null;
   infoCard.classList.add("hidden");
   controls.target.set(0, 0, 0);
   camera.position.set(0, 60, 160);
+});
+
+document.getElementById("fly-toggle").addEventListener("click", () => {
+  if (fly.active) exitFlyMode();
+  else enterFlyMode();
 });
 
 const speedInput = document.getElementById("speed");
