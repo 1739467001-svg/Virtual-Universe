@@ -1,6 +1,32 @@
-// 程序化行星纹理：全部用 Canvas 生成，不依赖任何外部图片（环境 CDN 被网络策略拦截）。
-// 输出 1024×512 的等距柱状（equirectangular）贴图，正好匹配 SphereGeometry 的 UV。
+// 行星纹理：优先加载 assets/textures/ 下的真实位图（NASA / 公共素材，已随仓库打包，离线可用）；
+// 若加载失败则自动回退到 Canvas 程序化纹理，保证任何环境下都能正常显示。
 import * as THREE from "three";
+
+// ---------- 真实位图加载（含程序化回退）----------
+const loader = new THREE.TextureLoader();
+const TEX = "./assets/textures/";
+
+// 加载一张真实贴图；onError 时把图像换成 fallback() 生成的程序化纹理
+function realTex(file, { srgb = true, fallback = null } = {}) {
+  const tex = loader.load(TEX + file, undefined, undefined, () => {
+    if (fallback) {
+      const fb = fallback();
+      tex.image = fb.image;
+      tex.colorSpace = fb.colorSpace;
+      tex.needsUpdate = true;
+    }
+  });
+  tex.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+  tex.anisotropy = 8;
+  return tex;
+}
+
+// 行星色彩贴图文件名（按英文名映射）
+const PLANET_FILE = {
+  Mercury: "mercury.jpg", Venus: "venus.jpg", Earth: "earth_day.jpg",
+  Mars: "mars.jpg", Jupiter: "jupiter.jpg", Saturn: "saturn.jpg",
+  Uranus: "uranus.jpg", Neptune: "neptune.jpg",
+};
 
 // 确定性随机（mulberry32），保证每次生成的行星样子一致
 function rng(seed) {
@@ -106,8 +132,11 @@ function earthTexture(seed) {
   });
 }
 
-// 地球云层（带透明通道，贴在略大的球上）
-export function cloudTexture(seed = 13) {
+// 地球云层（带透明通道，贴在略大的球上）——真实贴图优先，回退到程序化
+export function cloudTexture() {
+  return realTex("earth_clouds.png", { srgb: true, fallback: proceduralClouds });
+}
+function proceduralClouds(seed = 13) {
   return canvasTex(1024, 512, (ctx, w, h) => {
     ctx.clearRect(0, 0, w, h);
     const rand = rng(seed);
@@ -184,8 +213,26 @@ function iceGiantTexture(base, seed) {
   });
 }
 
-// 太阳：橙黄底 + 颗粒状米粒组织
-export function sunTexture(seed = 99) {
+// 地球附加贴图：夜晚灯光（自发光）、法线（地形起伏）、高光（海洋反光）
+export function earthNightTexture() {
+  return realTex("earth_night.png", { srgb: true });
+}
+export function earthNormalTexture() {
+  return realTex("earth_normal.jpg", { srgb: false });
+}
+export function earthSpecularTexture() {
+  return realTex("earth_specular.jpg", { srgb: false });
+}
+// 月球真实贴图
+export function moonTexture() {
+  return realTex("moon.jpg", { srgb: true });
+}
+
+// 太阳：真实贴图优先，回退到程序化颗粒纹理
+export function sunTexture() {
+  return realTex("sun.jpg", { srgb: true, fallback: proceduralSun });
+}
+function proceduralSun(seed = 99) {
   return canvasTex(1024, 512, (ctx, w, h) => {
     ctx.fillStyle = "#ff9a1e";
     ctx.fillRect(0, 0, w, h);
@@ -222,8 +269,8 @@ export function ringTexture(base, seed = 21) {
   });
 }
 
-// 按行星类型分发纹理
-export function planetTexture(p) {
+// 程序化纹理（作为真实贴图加载失败时的回退）
+function proceduralPlanetTexture(p) {
   switch (p.type) {
     case "earth":
       return earthTexture(7);
@@ -235,4 +282,11 @@ export function planetTexture(p) {
     default:
       return rockyTexture(p.color, p.seed || 1);
   }
+}
+
+// 行星色彩贴图：真实位图优先，失败回退程序化
+export function planetTexture(p) {
+  const file = PLANET_FILE[p.enName];
+  if (!file) return proceduralPlanetTexture(p);
+  return realTex(file, { srgb: true, fallback: () => proceduralPlanetTexture(p) });
 }
