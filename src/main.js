@@ -2,8 +2,15 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { CSS2DRenderer, CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
 import { VRButton } from "three/addons/webxr/VRButton.js";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { SUN, PLANETS } from "./data.js";
-import { planetTexture, cloudTexture, ringTexture, sunTexture } from "./textures.js";
+import {
+  planetTexture, cloudTexture, ringTexture, sunTexture,
+  earthNightTexture, earthNormalTexture, earthSpecularTexture, moonTexture,
+} from "./textures.js";
 
 // ---------- 基础场景 ----------
 const scene = new THREE.Scene();
@@ -20,6 +27,8 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.xr.enabled = true; // 预留 WebXR：插上头显即可进入沉浸模式
+renderer.toneMapping = THREE.ACESFilmicToneMapping; // 电影级色调映射，配合 Bloom 更自然
+renderer.toneMappingExposure = 1.2;
 document.body.appendChild(renderer.domElement);
 
 // 标签渲染器（DOM 叠加层）
@@ -32,6 +41,18 @@ document.body.appendChild(labelRenderer.domElement);
 
 // WebXR 进入按钮
 document.body.appendChild(VRButton.createButton(renderer));
+
+// ---------- 后期处理：Bloom 辉光（让太阳/恒星更耀眼）----------
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloomPass = new UnrealBloomPass(
+  new THREE.Vector2(window.innerWidth, window.innerHeight),
+  0.85,  // strength：辉光强度
+  0.5,   // radius：扩散半径
+  0.85   // threshold：仅高亮区域（太阳、光晕）才发光，行星表面不泛白
+);
+composer.addPass(bloomPass);
+composer.addPass(new OutputPass()); // 负责色调映射 + 色彩空间输出
 
 // 相机控制
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -165,7 +186,18 @@ function createStarfield(count = 6000, radius = 2000) {
   });
   return new THREE.Points(geo, mat);
 }
-scene.add(createStarfield());
+scene.add(createStarfield(2500)); // 近景星点，叠在银河天空盒之上增加纵深
+
+// ---------- 银河天空盒（真实 Milky Way cubemap）----------
+const cubeLoader = new THREE.CubeTextureLoader().setPath("./assets/textures/milkyway/");
+const milkyway = cubeLoader.load(
+  ["px.jpg", "nx.jpg", "py.jpg", "ny.jpg", "pz.jpg", "nz.jpg"],
+  undefined,
+  undefined,
+  () => { scene.background = new THREE.Color(0x000008); } // 加载失败回退纯黑底
+);
+milkyway.colorSpace = THREE.SRGBColorSpace;
+scene.background = milkyway;
 
 // ---------- 辅助：创建标签 ----------
 function makeLabel(text) {
@@ -196,6 +228,21 @@ const glow = new THREE.Sprite(
 );
 glow.scale.set(SUN.radius * 6, SUN.radius * 6, 1);
 sunMesh.add(glow);
+
+// 日冕 / 耀斑：更大的橙色additive光层，循环里做「呼吸」脉动与缓慢旋转
+const corona = new THREE.Sprite(
+  new THREE.SpriteMaterial({
+    map: glowTexture,
+    color: 0xff7a2a,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    opacity: 0.45,
+    rotation: 0,
+  })
+);
+corona.scale.set(SUN.radius * 9, SUN.radius * 9, 1);
+sunMesh.add(corona);
 
 const sunLabel = makeLabel(SUN.name);
 sunLabel.position.set(0, SUN.radius + 3, 0);
@@ -248,14 +295,23 @@ for (const p of PLANETS) {
   holder.add(tiltGroup);
 
   const isGiant = p.type === "gasGiant" || p.type === "iceGiant";
-  const mesh = new THREE.Mesh(
-    new THREE.SphereGeometry(p.size, 48, 48),
-    new THREE.MeshStandardMaterial({
-      map: planetTexture(p),
-      roughness: isGiant ? 0.65 : 0.95,
-      metalness: 0.0,
-    })
-  );
+  const mat = new THREE.MeshStandardMaterial({
+    map: planetTexture(p),
+    roughness: isGiant ? 0.65 : 0.95,
+    metalness: 0.0,
+  });
+  // 地球：法线贴图(地形起伏) + 高光贴图(海洋金属反光) + 夜晚灯光(自发光)
+  if (p.type === "earth") {
+    mat.normalMap = earthNormalTexture();
+    mat.normalScale = new THREE.Vector2(0.85, 0.85);
+    mat.metalnessMap = earthSpecularTexture(); // 海洋(高光区)更具反光
+    mat.metalness = 0.6;
+    mat.roughness = 0.7;
+    mat.emissiveMap = earthNightTexture();      // 夜半球城市灯光
+    mat.emissive = new THREE.Color(0xffdca8);
+    mat.emissiveIntensity = 1.4;
+  }
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(p.size, 64, 64), mat);
   mesh.userData = { body: p, isFocusable: true };
   tiltGroup.add(mesh);
   focusables.push(mesh);
@@ -263,13 +319,15 @@ for (const p of PLANETS) {
   // 地球云层（略大的半透明球）
   let clouds = null;
   if (p.type === "earth") {
+    const ct = cloudTexture();
     clouds = new THREE.Mesh(
-      new THREE.SphereGeometry(p.size * 1.02, 48, 48),
+      new THREE.SphereGeometry(p.size * 1.02, 64, 64),
       new THREE.MeshStandardMaterial({
-        map: cloudTexture(),
+        map: ct,
+        alphaMap: ct, // 用云图自身做透明遮罩，无云处透出地表
         transparent: true,
         depthWrite: false,
-        opacity: 0.9,
+        opacity: 0.95,
       })
     );
     mesh.add(clouds);
@@ -298,8 +356,8 @@ for (const p of PLANETS) {
       const moonPivot = new THREE.Object3D();
       tiltGroup.add(moonPivot);
       const moonMesh = new THREE.Mesh(
-        new THREE.SphereGeometry(m.size, 20, 20),
-        new THREE.MeshStandardMaterial({ color: m.color, roughness: 0.95 })
+        new THREE.SphereGeometry(m.size, 32, 32),
+        new THREE.MeshStandardMaterial({ map: moonTexture(), roughness: 0.95 })
       );
       moonMesh.position.x = m.distance;
       moonPivot.add(moonMesh);
@@ -413,6 +471,14 @@ const tmpVec = new THREE.Vector3();
 function animate() {
   const dt = clock.getDelta();
 
+  // 日冕脉动 + 缓慢旋转（耀斑动画）——不受暂停影响，太阳始终「活着」
+  const t = clock.elapsedTime;
+  corona.material.opacity = 0.4 + Math.sin(t * 1.3) * 0.12;
+  corona.material.rotation += dt * 0.05;
+  const pulse = 1 + Math.sin(t * 0.9) * 0.06;
+  corona.scale.set(SUN.radius * 9 * pulse, SUN.radius * 9 * pulse, 1);
+  glow.material.opacity = 0.85 + Math.sin(t * 1.7) * 0.08;
+
   if (state.playing) {
     const dayStep = dt * state.speed; // 本帧推进的「天数」
 
@@ -454,7 +520,9 @@ function animate() {
     }
     controls.update();
   }
-  renderer.render(scene, camera);
+  // WebXR 模式下直接渲染（EffectComposer 不支持 XR 多视图）；否则走 Bloom 后期管线
+  if (renderer.xr.isPresenting) renderer.render(scene, camera);
+  else composer.render();
   labelRenderer.render(scene, camera);
 }
 renderer.setAnimationLoop(animate); // setAnimationLoop 兼容 WebXR
@@ -508,6 +576,8 @@ window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setSize(window.innerWidth, window.innerHeight);
+  bloomPass.setSize(window.innerWidth, window.innerHeight);
   labelRenderer.setSize(window.innerWidth, window.innerHeight);
 });
 
