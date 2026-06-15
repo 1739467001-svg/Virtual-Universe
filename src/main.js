@@ -6,11 +6,12 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
-import { SUN, PLANETS } from "./data.js";
+import { SUN, PLANETS, DWARFS } from "./data.js";
 import {
   planetTexture, cloudTexture, ringTexture, sunTexture,
   earthNightTexture, earthNormalTexture, earthSpecularTexture, moonTexture,
 } from "./textures.js";
+import { helioLongitude, earthDistanceAU, sunDistanceAU } from "./ephemeris.js";
 
 // ---------- 基础场景 ----------
 const scene = new THREE.Scene();
@@ -290,7 +291,9 @@ function remapRingUV(geo, inner, outer) {
   uv.needsUpdate = true;
 }
 
-for (const p of PLANETS) {
+const moonMap = moonTexture(); // 所有卫星共用一张月面贴图，避免重复加载
+
+for (const p of [...PLANETS, ...DWARFS]) {
   const pivot = new THREE.Object3D(); // 公转
   scene.add(pivot);
 
@@ -364,8 +367,8 @@ for (const p of PLANETS) {
       const moonPivot = new THREE.Object3D();
       tiltGroup.add(moonPivot);
       const moonMesh = new THREE.Mesh(
-        new THREE.SphereGeometry(m.size, 32, 32),
-        new THREE.MeshStandardMaterial({ map: moonTexture(), roughness: 0.95 })
+        new THREE.SphereGeometry(m.size, 24, 24),
+        new THREE.MeshStandardMaterial({ map: moonMap, color: m.color, roughness: 0.95 })
       );
       moonMesh.position.x = m.distance;
       moonPivot.add(moonMesh);
@@ -523,10 +526,11 @@ function updateHud(dt) {
   const near = nearestBody();
   hudNearEl.textContent = near ? `${near.body.name} ${Math.max(0, near.surfaceDist).toFixed(1)}` : "—";
   drawRadar();
+  updateInfoLive();
 }
 
 function drawRadar() {
-  const ctx = radarCtx, S = 170, c = S / 2, CR = 78, RMAX = 132;
+  const ctx = radarCtx, S = 170, c = S / 2, CR = 78, RMAX = 160;
   ctx.clearRect(0, 0, S, S);
   ctx.strokeStyle = "rgba(120,140,200,0.18)";
   for (const o of planetObjects) {
@@ -555,6 +559,125 @@ function drawRadar() {
   ctx.beginPath();
   ctx.moveTo(7, 0); ctx.lineTo(-4, -4); ctx.lineTo(-4, 4); ctx.closePath(); ctx.fill();
   ctx.restore();
+}
+
+// ---------- 彗星（椭圆轨道掠日 + 粒子拖尾，背向太阳）----------
+function makeGlowSprite(color, size) {
+  const sp = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: glowTexture, color, transparent: true,
+      blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.9,
+    })
+  );
+  sp.scale.set(size, size, 1);
+  return sp;
+}
+
+const comets = [];
+function createComet({ a, e, incline, phase, tailLen, speed, seed = 1 }) {
+  const group = new THREE.Object3D();
+  group.rotation.x = incline;          // 轨道面倾斜，增加层次
+  group.rotation.y = Math.random() * Math.PI * 2;
+  scene.add(group);
+
+  const nucleus = makeGlowSprite(0xbfe6ff, 2.2); // 彗核（发光点）
+  group.add(nucleus);
+
+  // 拖尾：一束粒子，永远从彗核指向「背离太阳」方向
+  const N = 160;
+  const pos = new Float32Array(N * 3);
+  const tail = new THREE.Points(
+    new THREE.BufferGeometry().setAttribute("position", new THREE.BufferAttribute(pos, 3)),
+    new THREE.PointsMaterial({
+      color: 0x9fd8ff, size: 0.7, transparent: true, opacity: 0.6,
+      blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
+    })
+  );
+  group.add(tail);
+
+  const rand = (() => { let s = seed >>> 0; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); })();
+  comets.push({ group, nucleus, tail, a, e, tailLen, speed, nu: phase, N, rand, b: a * Math.sqrt(1 - e * e) });
+}
+// 两颗风格不同的彗星
+createComet({ a: 95, e: 0.82, incline: 0.5, phase: 0.0, tailLen: 26, speed: 0.18, seed: 7 });
+createComet({ a: 140, e: 0.9, incline: -0.9, phase: 2.0, tailLen: 40, speed: 0.11, seed: 23 });
+
+const _sunDir = new THREE.Vector3();
+function updateComets(dt, dayStep) {
+  for (const c of comets) {
+    c.nu += dt * c.speed * (0.4 + state.speed / 120); // 越接近近日点视觉越快由轨道半径体现
+    // 椭圆参数方程（焦点在太阳=group 原点）
+    const x = c.a * (Math.cos(c.nu) - c.e);
+    const z = c.b * Math.sin(c.nu);
+    c.nucleus.position.set(x, 0, z);
+    // 背向太阳方向（局部坐标系下太阳在原点）
+    _sunDir.set(x, 0, z).normalize();
+    const arr = c.tail.geometry.attributes.position.array;
+    for (let i = 0; i < c.N; i++) {
+      const f = i / c.N;
+      const jitter = (c.rand() - 0.5) * 2.2 * f;
+      arr[i * 3] = x + _sunDir.x * c.tailLen * f + jitter;
+      arr[i * 3 + 1] = jitter * 0.6;
+      arr[i * 3 + 2] = z + _sunDir.z * c.tailLen * f + jitter;
+    }
+    c.tail.geometry.attributes.position.needsUpdate = true;
+  }
+}
+
+// ---------- 流星雨（偶发的明亮划痕，自动回收复用）----------
+const meteorPool = [];
+const METEOR_COUNT = 14;
+for (let i = 0; i < METEOR_COUNT; i++) {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(6), 3));
+  const line = new THREE.Line(
+    geo,
+    new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending })
+  );
+  line.visible = false;
+  scene.add(line);
+  meteorPool.push({ line, life: 0, dur: 1, vel: new THREE.Vector3() });
+}
+let meteorTimer = 0;
+function spawnMeteor() {
+  const m = meteorPool.find((x) => !x.line.visible);
+  if (!m) return;
+  // 在相机周围随机方位生成，确保划过可见的天区（像流星划过夜空）
+  const r = 120 + Math.random() * 200;
+  const theta = Math.random() * Math.PI * 2;
+  const phi = Math.acos(2 * Math.random() - 1);
+  const start = camera.position.clone().add(new THREE.Vector3(
+    r * Math.sin(phi) * Math.cos(theta),
+    r * Math.sin(phi) * Math.sin(theta),
+    r * Math.cos(phi)
+  ));
+  m.vel.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5)
+    .normalize().multiplyScalar(120 + Math.random() * 140);
+  m.start = start;
+  m.len = 18 + Math.random() * 26;
+  m.life = 0;
+  m.dur = 0.8 + Math.random() * 0.7;
+  m.line.visible = true;
+}
+function updateMeteors(dt) {
+  meteorTimer -= dt;
+  if (meteorTimer <= 0) {
+    spawnMeteor();
+    meteorTimer = 0.6 + Math.random() * 2.2; // 平均每 ~1.5s 一颗
+  }
+  for (const m of meteorPool) {
+    if (!m.line.visible) continue;
+    m.life += dt;
+    const u = m.life / m.dur;
+    if (u >= 1) { m.line.visible = false; continue; }
+    const head = m.start.clone().addScaledVector(m.vel, m.life);
+    const tail = head.clone().addScaledVector(m.vel.clone().normalize(), -m.len);
+    const arr = m.line.geometry.attributes.position.array;
+    arr[0] = head.x; arr[1] = head.y; arr[2] = head.z;
+    arr[3] = tail.x; arr[4] = tail.y; arr[5] = tail.z;
+    m.line.geometry.attributes.position.needsUpdate = true;
+    m.line.material.opacity = Math.sin(u * Math.PI); // 渐入渐出
+  }
 }
 
 // ---------- 时间与播放控制 ----------
@@ -593,8 +716,11 @@ const infoCard = document.getElementById("info-card");
 const infoName = document.getElementById("info-name");
 const infoDesc = document.getElementById("info-desc");
 const infoStats = document.getElementById("info-stats");
+const infoLive = document.getElementById("info-live");
+let currentInfoBody = null; // 当前信息卡对应天体，用于刷新实时距离
 
 function showInfo(body) {
+  currentInfoBody = body;
   infoName.textContent = `${body.name} · ${body.enName}`;
   infoDesc.textContent = body.desc;
   infoStats.innerHTML = "";
@@ -604,9 +730,27 @@ function showInfo(body) {
     infoStats.appendChild(li);
   }
   infoCard.classList.remove("hidden");
+  updateInfoLive();
 }
+
+// 实时星历数据：与太阳/地球的真实距离（AU），基于当前真实时刻
+function updateInfoLive() {
+  const body = currentInfoBody;
+  if (!body || infoCard.classList.contains("hidden")) return;
+  const en = body.enName;
+  if (en === "Sun") { infoLive.classList.add("hidden"); return; }
+  const now = new Date();
+  const dSun = sunDistanceAU(en, now);
+  if (!Number.isFinite(dSun) || dSun === 0) { infoLive.classList.add("hidden"); return; }
+  const parts = [`距太阳 ${dSun.toFixed(3)} AU`];
+  if (en !== "Earth") parts.push(`距地球 ${earthDistanceAU(en, now).toFixed(3)} AU`);
+  infoLive.textContent = `🛰 实时星历（${now.toLocaleDateString("zh-CN")}）｜ ` + parts.join(" · ");
+  infoLive.classList.remove("hidden");
+}
+
 document.getElementById("info-close").addEventListener("click", () => {
   infoCard.classList.add("hidden");
+  currentInfoBody = null;
   focusTarget = null;
 });
 
@@ -623,6 +767,10 @@ function animate() {
   const pulse = 1 + Math.sin(t * 0.9) * 0.06;
   corona.scale.set(SUN.radius * 9 * pulse, SUN.radius * 9 * pulse, 1);
   glow.material.opacity = 0.85 + Math.sin(t * 1.7) * 0.08;
+
+  // 彗星与流星雨（持续运行，不受暂停影响）
+  updateComets(dt);
+  updateMeteors(dt);
 
   if (state.playing) {
     const dayStep = dt * state.speed; // 本帧推进的「天数」
@@ -697,6 +845,19 @@ document.getElementById("reset-view").addEventListener("click", () => {
 document.getElementById("fly-toggle").addEventListener("click", () => {
   if (fly.active) exitFlyMode();
   else enterFlyMode();
+});
+
+// 真实星历：把每颗行星/矮行星对齐到「今天此刻」的真实日心角位置
+document.getElementById("ephemeris-align").addEventListener("click", () => {
+  const now = new Date();
+  for (const obj of planetObjects) {
+    const lon = helioLongitude(obj.body.enName, now);
+    if (Number.isFinite(lon)) {
+      obj.angle = lon;
+      obj.pivot.rotation.y = lon; // 立即生效（即使处于暂停）
+    }
+  }
+  updateInfoLive();
 });
 
 const speedInput = document.getElementById("speed");
