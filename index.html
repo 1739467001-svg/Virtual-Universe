@@ -42,6 +42,16 @@
     <ul id="info-stats"></ul>
   </div>
 
+  <!-- 飞行仪表盘 + 小地图雷达（右下角）-->
+  <div id="flight-hud">
+    <canvas id="radar" width="170" height="170"></canvas>
+    <div id="hud-readout">
+      <div class="hud-row"><span class="k">速度</span><span id="hud-speed">0</span></div>
+      <div class="hud-row"><span class="k">坐标</span><span id="hud-pos">0, 0, 0</span></div>
+      <div class="hud-row"><span class="k">最近</span><span id="hud-near">—</span></div>
+    </div>
+  </div>
+
   <!-- Three.js 已打包进 vendor/（离线可用，无需联网、无需构建步骤）-->
   <script type="importmap">
   {

@@ -123,6 +123,39 @@ canvas { display: block; }
 }
 #info-close:hover { color: #fff; }
 
+/* 飞行仪表盘 + 小地图雷达 */
+#flight-hud {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  background: rgba(16, 18, 28, 0.72);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 10px;
+}
+#radar {
+  width: 170px;
+  height: 170px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(20,30,55,0.6), rgba(8,10,20,0.9));
+  border: 1px solid rgba(120, 150, 255, 0.25);
+}
+#hud-readout { width: 170px; font-size: 12px; color: #cdd2e2; }
+#hud-readout .hud-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+#hud-readout .k { color: #8c93a8; }
+#hud-readout span:last-child { color: #fff; font-variant-numeric: tabular-nums; }
+
 /* 行星标签 */
 .planet-label {
   color: #fff;

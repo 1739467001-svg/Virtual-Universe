@@ -58,7 +58,7 @@ composer.addPass(new OutputPass()); // 负责色调映射 + 色彩空间输出
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;
-controls.minDistance = 12;
+controls.minDistance = 2.5; // 允许贴近小行星细看
 controls.maxDistance = 1200;
 
 // ---------- 自由飞行（飞船视角）----------
@@ -152,9 +152,17 @@ function updateFly(dt) {
     ? dir.normalize().multiplyScalar(fly.speed * boost)
     : new THREE.Vector3();
 
+  // 靠近天体时自动减速，便于细看与环绕
+  const near = nearestBody();
+  if (near && near.surfaceDist < near.r * 3) {
+    target.multiplyScalar(THREE.MathUtils.clamp(near.surfaceDist / (near.r * 3), 0.12, 1));
+  }
+
   // 平滑加减速，手感更顺滑
   fly.vel.lerp(target, Math.min(1, dt * 6));
   camera.position.addScaledVector(fly.vel, dt);
+
+  collideBodies(); // 防止穿模
 }
 
 // ---------- 灯光 ----------
@@ -412,6 +420,143 @@ function createAsteroidBelt(count = 1500, rInner = 48, rOuter = 56) {
 const asteroidBelt = createAsteroidBelt();
 scene.add(asteroidBelt);
 
+// ---------- 天体集合 + 邻近/碰撞检测（供自由飞行、雷达、飞抵动画共用）----------
+const bodyMeshes = [sunMesh, ...planetObjects.map((o) => o.mesh)];
+const _wp = new THREE.Vector3();
+const bodyRadius = (mesh) => mesh.geometry.parameters.radius;
+
+// 返回距相机「表面」最近的天体信息
+function nearestBody() {
+  let best = null;
+  for (const mesh of bodyMeshes) {
+    mesh.getWorldPosition(_wp);
+    const r = bodyRadius(mesh);
+    const d = camera.position.distanceTo(_wp) - r;
+    if (!best || d < best.surfaceDist) {
+      best = { mesh, P: _wp.clone(), r, surfaceDist: d, body: mesh.userData.body };
+    }
+  }
+  return best;
+}
+
+// 碰撞：不允许穿入天体，贴着「安全壳」滑动（便于贴地/环绕观测）
+function collideBodies() {
+  for (const mesh of bodyMeshes) {
+    mesh.getWorldPosition(_wp);
+    const r = bodyRadius(mesh);
+    const shell = r + r * 0.4 + 1.5;
+    const dir = camera.position.clone().sub(_wp);
+    const d = dir.length();
+    if (d > 1e-4 && d < shell) {
+      camera.position.copy(_wp).add(dir.multiplyScalar(shell / d));
+      fly.vel.multiplyScalar(0.3); // 削掉撞向天体的速度，消除抖动
+    }
+  }
+}
+
+// ---------- 一键飞抵：平滑飞掠到行星并在合适距离悬停 ----------
+let flyTo = null;
+const _orient = new THREE.Object3D();
+function flyToBody(mesh) {
+  const r = bodyRadius(mesh);
+  mesh.getWorldPosition(_wp);
+  const dir = camera.position.clone().sub(_wp);
+  if (dir.lengthSq() < 1e-6) dir.set(0, 0, 1);
+  flyTo = {
+    mesh,
+    t: 0,
+    dur: 1.6,
+    startPos: camera.position.clone(),
+    startQuat: camera.quaternion.clone(),
+    dir: dir.normalize(),       // 接近方向（行星→相机，世界系）
+    standoff: r * 3 + 4,        // 悬停距离随天体大小自适应
+  };
+  if (!fly.active) controls.enabled = false; // 动画期间接管相机
+}
+function updateFlyTo(dt) {
+  flyTo.t += dt;
+  const u = Math.min(1, flyTo.t / flyTo.dur);
+  const e = u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2; // easeInOutQuad
+  flyTo.mesh.getWorldPosition(_wp);
+  const endPos = _wp.clone().add(flyTo.dir.clone().multiplyScalar(flyTo.standoff));
+  camera.position.lerpVectors(flyTo.startPos, endPos, e);
+  // 朝向逐渐看向目标
+  _orient.position.copy(camera.position);
+  _orient.lookAt(_wp);
+  camera.quaternion.copy(flyTo.startQuat).slerp(_orient.quaternion, e);
+
+  if (u >= 1) {
+    const mesh = flyTo.mesh;
+    flyTo = null;
+    if (fly.active) {
+      const eu = new THREE.Euler().setFromQuaternion(camera.quaternion, "YXZ");
+      fly.yaw = eu.y;
+      fly.pitch = eu.x;
+      fly.vel.set(0, 0, 0);
+    } else {
+      focusTarget = mesh; // 交回 OrbitControls，绕行星环绕观测
+      mesh.getWorldPosition(tmpVec);
+      controls.target.copy(tmpVec);
+      controls.enabled = true;
+    }
+  }
+}
+
+// ---------- 仪表盘 + 小地图雷达 ----------
+const hudSpeedEl = document.getElementById("hud-speed");
+const hudPosEl = document.getElementById("hud-pos");
+const hudNearEl = document.getElementById("hud-near");
+const radarCtx = document.getElementById("radar").getContext("2d");
+const prevCamPos = camera.position.clone();
+let hudAcc = 0;
+const colorCss = (c) => "#" + (c >>> 0).toString(16).padStart(6, "0").slice(-6);
+
+function updateHud(dt) {
+  const speed = prevCamPos.distanceTo(camera.position) / Math.max(dt, 1e-4);
+  prevCamPos.copy(camera.position);
+  hudAcc += dt;
+  if (hudAcc < 0.1) return; // 文字/雷达约 10Hz 刷新，省开销
+  hudAcc = 0;
+  hudSpeedEl.textContent = speed.toFixed(1) + " u/s";
+  const p = camera.position;
+  hudPosEl.textContent = `${p.x.toFixed(0)}, ${p.y.toFixed(0)}, ${p.z.toFixed(0)}`;
+  const near = nearestBody();
+  hudNearEl.textContent = near ? `${near.body.name} ${Math.max(0, near.surfaceDist).toFixed(1)}` : "—";
+  drawRadar();
+}
+
+function drawRadar() {
+  const ctx = radarCtx, S = 170, c = S / 2, CR = 78, RMAX = 132;
+  ctx.clearRect(0, 0, S, S);
+  ctx.strokeStyle = "rgba(120,140,200,0.18)";
+  for (const o of planetObjects) {
+    ctx.beginPath();
+    ctx.arc(c, c, (o.body.distance / RMAX) * CR, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.fillStyle = "#ffcc33"; // 太阳
+  ctx.beginPath(); ctx.arc(c, c, 3.5, 0, Math.PI * 2); ctx.fill();
+  for (const o of planetObjects) {
+    o.mesh.getWorldPosition(_wp);
+    ctx.fillStyle = colorCss(o.body.color);
+    ctx.beginPath();
+    ctx.arc(c + (_wp.x / RMAX) * CR, c + (_wp.z / RMAX) * CR, 2.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // 相机标记 + 朝向箭头
+  let cx = (camera.position.x / RMAX) * CR, cy = (camera.position.z / RMAX) * CR;
+  const mag = Math.hypot(cx, cy), edge = CR - 2;
+  if (mag > edge) { cx = (cx / mag) * edge; cy = (cy / mag) * edge; }
+  const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+  ctx.save();
+  ctx.translate(c + cx, c + cy);
+  ctx.rotate(Math.atan2(fwd.z, fwd.x));
+  ctx.fillStyle = "#5dff9b";
+  ctx.beginPath();
+  ctx.moveTo(7, 0); ctx.lineTo(-4, -4); ctx.lineTo(-4, 4); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
 // ---------- 时间与播放控制 ----------
 const state = { playing: true, speed: 60 }; // speed: 模拟天数/秒 的缩放系数
 const clock = new THREE.Clock();
@@ -439,7 +584,7 @@ renderer.domElement.addEventListener("pointerup", (e) => {
 });
 
 function selectBody(mesh) {
-  focusTarget = mesh;
+  flyToBody(mesh); // 平滑飞掠过去并悬停
   showInfo(mesh.userData.body);
 }
 
@@ -509,8 +654,10 @@ function animate() {
     }
   }
 
-  // 自由飞行：驾驶相机漫游
-  if (fly.active) {
+  // 相机控制优先级：飞抵动画 > 自由飞行 > 轨道环绕
+  if (flyTo) {
+    updateFlyTo(dt);
+  } else if (fly.active) {
     updateFly(dt);
   } else {
     // 跟随聚焦目标
@@ -520,6 +667,9 @@ function animate() {
     }
     controls.update();
   }
+
+  updateHud(dt);
+
   // WebXR 模式下直接渲染（EffectComposer 不支持 XR 多视图）；否则走 Bloom 后期管线
   if (renderer.xr.isPresenting) renderer.render(scene, camera);
   else composer.render();
@@ -536,6 +686,8 @@ playBtn.addEventListener("click", () => {
 
 document.getElementById("reset-view").addEventListener("click", () => {
   exitFlyMode();
+  flyTo = null;
+  controls.enabled = true;
   focusTarget = null;
   infoCard.classList.add("hidden");
   controls.target.set(0, 0, 0);
