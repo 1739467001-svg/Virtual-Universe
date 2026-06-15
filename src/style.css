@@ -101,6 +101,15 @@ canvas { display: block; }
 #info-card.hidden { transform: translateX(20px); opacity: 0; pointer-events: none; }
 #info-card h2 { font-size: 22px; margin-bottom: 8px; }
 #info-card p { font-size: 13px; line-height: 1.6; color: #c2c7d6; margin-bottom: 12px; }
+#info-live {
+  font-size: 12px;
+  color: #9fd8ff;
+  background: rgba(90, 150, 255, 0.1);
+  border: 1px solid rgba(120, 180, 255, 0.2);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-variant-numeric: tabular-nums;
+}
 #info-card ul { list-style: none; font-size: 12px; }
 #info-card li {
   display: flex;
