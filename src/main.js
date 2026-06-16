@@ -707,8 +707,57 @@ renderer.domElement.addEventListener("pointerup", (e) => {
 });
 
 function selectBody(mesh) {
+  if (tour.active) stopTour(); // 手动选择即结束自动导览
   flyToBody(mesh); // 平滑飞掠过去并悬停
   showInfo(mesh.userData.body);
+}
+
+// ---------- 自动导览 / 语音解说 ----------
+const tour = { active: false, index: 0, dwell: 0, voice: true, seq: [] };
+
+function speak(body) {
+  if (!tour.voice || !("speechSynthesis" in window)) return;
+  window.speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(`${body.name}。${body.desc}`);
+  u.lang = "zh-CN";
+  u.rate = 1.0;
+  window.speechSynthesis.speak(u);
+}
+
+function tourGoto(i) {
+  tour.index = i;
+  tour.dwell = 0;
+  const mesh = tour.seq[i];
+  flyToBody(mesh);
+  showInfo(mesh.userData.body);
+  speak(mesh.userData.body);
+}
+
+function startTour() {
+  if (!tour.seq.length) return;
+  tour.active = true;
+  exitFlyMode();
+  flyTo = null;
+  controls.enabled = true;
+  document.getElementById("tour-toggle").classList.add("active");
+  tourGoto(0);
+}
+
+function stopTour() {
+  tour.active = false;
+  tour.dwell = 0;
+  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+  document.getElementById("tour-toggle").classList.remove("active");
+}
+
+// 每帧推进导览：飞抵动画结束后悬停讲解约 6 秒，再前往下一个
+function updateTour(dt) {
+  if (!tour.active || flyTo) return;
+  tour.dwell += dt;
+  if (tour.dwell > 6) {
+    if (tour.index + 1 < tour.seq.length) tourGoto(tour.index + 1);
+    else stopTour();
+  }
 }
 
 // ---------- 信息卡片 ----------
@@ -816,6 +865,7 @@ function animate() {
     controls.update();
   }
 
+  updateTour(dt);
   updateHud(dt);
 
   // WebXR 模式下直接渲染（EffectComposer 不支持 XR 多视图）；否则走 Bloom 后期管线
@@ -833,6 +883,7 @@ playBtn.addEventListener("click", () => {
 });
 
 document.getElementById("reset-view").addEventListener("click", () => {
+  stopTour();
   exitFlyMode();
   flyTo = null;
   controls.enabled = true;
@@ -843,8 +894,19 @@ document.getElementById("reset-view").addEventListener("click", () => {
 });
 
 document.getElementById("fly-toggle").addEventListener("click", () => {
+  if (tour.active) stopTour();
   if (fly.active) exitFlyMode();
   else enterFlyMode();
+});
+
+document.getElementById("tour-toggle").addEventListener("click", () => {
+  if (tour.active) stopTour();
+  else startTour();
+});
+
+document.getElementById("toggle-voice").addEventListener("change", (e) => {
+  tour.voice = e.target.checked;
+  if (!tour.voice && "speechSynthesis" in window) window.speechSynthesis.cancel();
 });
 
 // 真实星历：把每颗行星/矮行星对齐到「今天此刻」的真实日心角位置
@@ -883,6 +945,9 @@ for (const b of allBodies) {
   btn.addEventListener("click", () => selectBody(b.mesh));
   jumpRow.appendChild(btn);
 }
+
+// 导览顺序：太阳 → 八大行星（矮行星不纳入，保持节奏紧凑）
+tour.seq = [sunMesh, ...planetObjects.filter((o) => !o.body.dwarf).map((o) => o.mesh)];
 
 // ---------- 自适应窗口 ----------
 window.addEventListener("resize", () => {
