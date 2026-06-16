@@ -46,9 +46,14 @@
     <ul id="info-stats"></ul>
   </div>
 
-  <!-- 导览字幕 + 进度条（屏幕底部，仅导览时显示）-->
+  <!-- 导览字幕 + 进度条 + 播放控制（屏幕底部,仅导览时显示）-->
   <div id="tour-bar" class="hidden">
     <div id="tour-progress">
+      <div id="tour-ctrls">
+        <button id="tour-prev" title="上一站">⏮</button>
+        <button id="tour-pause" title="暂停 / 继续讲解">⏸</button>
+        <button id="tour-next" title="下一站">⏭</button>
+      </div>
       <span id="tour-step">第 1 / 9 站</span>
       <span id="tour-stop-name">太阳</span>
       <div id="tour-track"><div id="tour-fill"></div></div>

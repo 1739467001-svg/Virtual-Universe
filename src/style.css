@@ -238,3 +238,71 @@ canvas { display: block; }
   border-radius: 10px;
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
 }
+
+/* 导览播放控制按钮 */
+#tour-ctrls {
+  display: flex;
+  gap: 6px;
+  pointer-events: auto;
+}
+#tour-ctrls button {
+  width: 30px;
+  height: 26px;
+  font-size: 13px;
+  color: #fff;
+  cursor: pointer;
+  background: rgba(90, 120, 220, 0.3);
+  border: 1px solid rgba(120, 150, 255, 0.45);
+  border-radius: 6px;
+  line-height: 1;
+}
+#tour-ctrls button:hover { background: rgba(90, 120, 220, 0.55); }
+#tour-ctrls button:active { transform: scale(0.92); }
+
+/* ---------- 移动端 / 触屏适配 ---------- */
+@media (max-width: 760px), (pointer: coarse) {
+  #hud-top h1 { font-size: 18px; }
+  #hud-top .hint { font-size: 11px; }
+
+  /* 控制面板:可横向滚动,按钮加大便于点按 */
+  #controls {
+    left: 8px;
+    right: 8px;
+    bottom: auto;
+    top: 8px;
+    max-width: none;
+    padding: 8px;
+  }
+  #controls .row { gap: 6px; flex-wrap: wrap; }
+  #controls button {
+    padding: 8px 10px;
+    font-size: 13px;
+    min-height: 38px;
+  }
+  #controls input[type="range"] { width: 110px; }
+  #controls label { min-height: 32px; display: inline-flex; align-items: center; }
+
+  /* 信息卡片改为底部抽屉式:置于导览条上方,不与顶部控制面板重叠 */
+  #info-card {
+    top: auto;
+    bottom: 150px;
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-width: none;
+    max-height: 40vh;
+    overflow-y: auto;
+  }
+  #info-card.hidden { transform: translateY(20px); }
+
+  /* 雷达缩小,留出屏幕空间 */
+  #flight-hud { transform: scale(0.82); transform-origin: bottom right; }
+
+  /* 导览条:贴近底部、留出安全区 */
+  #tour-bar {
+    width: calc(100vw - 16px);
+    bottom: max(12px, env(safe-area-inset-bottom));
+  }
+  #tour-subtitle { font-size: 14px; padding: 9px 12px; }
+  #tour-ctrls button { width: 40px; height: 36px; font-size: 15px; }
+}

@@ -24,9 +24,18 @@ const camera = new THREE.PerspectiveCamera(
 );
 camera.position.set(0, 60, 160);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+// 移动端(coarse pointer)关闭 MSAA 抗锯齿,改用自适应分辨率,显著减负
+const isMobile = window.matchMedia("(pointer: coarse)").matches;
+const renderer = new THREE.WebGLRenderer({ antialias: !isMobile, powerPreference: "high-performance" });
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+// 自适应分辨率:掉帧时下调像素比保流畅,帧率宽裕时回升保清晰
+const perf = {
+  cap: Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2),
+  min: isMobile ? 0.6 : 0.75,
+  dpr: 0, acc: 0, frames: 0,
+};
+perf.dpr = perf.cap;
+renderer.setPixelRatio(perf.dpr);
 renderer.xr.enabled = true; // 预留 WebXR：插上头显即可进入沉浸模式
 renderer.toneMapping = THREE.ACESFilmicToneMapping; // 电影级色调映射，配合 Bloom 更自然
 renderer.toneMappingExposure = 1.2;
@@ -713,7 +722,18 @@ function selectBody(mesh) {
 }
 
 // ---------- 自动导览 / 语音解说 ----------
-const tour = { active: false, index: 0, dwell: 0, voice: true, seq: [] };
+const tour = { active: false, paused: false, index: 0, dwell: 0, voice: true, seq: [] };
+// 缓存 DOM,避免每帧 getElementById
+const tourEls = {
+  bar: document.getElementById("tour-bar"),
+  step: document.getElementById("tour-step"),
+  name: document.getElementById("tour-stop-name"),
+  sub: document.getElementById("tour-subtitle"),
+  fill: document.getElementById("tour-fill"),
+  toggle: document.getElementById("tour-toggle"),
+  pause: document.getElementById("tour-pause"),
+};
+controls.autoRotateSpeed = 0.8; // 导览环绕镜头的转速(温和)
 
 function speak(body) {
   if (!tour.voice || !("speechSynthesis" in window)) return;
@@ -733,50 +753,71 @@ function tourGoto(i) {
   showInfo(body);
   speak(body);
   // 更新字幕与进度
-  document.getElementById("tour-step").textContent =
-    `第 ${i + 1} / ${tour.seq.length} 站`;
-  document.getElementById("tour-stop-name").textContent = body.name;
-  document.getElementById("tour-subtitle").textContent =
-    `${body.name}。${body.desc}`;
+  tourEls.step.textContent = `第 ${i + 1} / ${tour.seq.length} 站`;
+  tourEls.name.textContent = body.name;
+  tourEls.sub.textContent = `${body.name}。${body.desc}`;
 }
 
 function setTourProgress(frac) {
   const f = Math.max(0, Math.min(1, frac));
-  document.getElementById("tour-fill").style.width = `${(f * 100).toFixed(1)}%`;
+  tourEls.fill.style.width = `${(f * 100).toFixed(1)}%`;
 }
 
 function startTour() {
   if (!tour.seq.length) return;
   tour.active = true;
+  tour.paused = false;
+  tourEls.pause.textContent = "⏸";
   exitFlyMode();
   flyTo = null;
   controls.enabled = true;
-  document.getElementById("tour-toggle").classList.add("active");
-  document.getElementById("tour-bar").classList.remove("hidden");
+  tourEls.toggle.classList.add("active");
+  tourEls.bar.classList.remove("hidden");
   tourGoto(0);
 }
 
 function stopTour() {
   tour.active = false;
+  tour.paused = false;
   tour.dwell = 0;
+  controls.autoRotate = false;
   if ("speechSynthesis" in window) window.speechSynthesis.cancel();
-  document.getElementById("tour-toggle").classList.remove("active");
-  document.getElementById("tour-bar").classList.add("hidden");
+  tourEls.toggle.classList.remove("active");
+  tourEls.bar.classList.add("hidden");
 }
 
-// 每帧推进导览：飞抵动画结束后悬停讲解约 6 秒，再前往下一个
+// 播放控制：上一站 / 下一站 / 暂停讲解
+function tourPrev() {
+  if (!tour.active) return;
+  tourGoto(Math.max(0, tour.index - 1));
+}
+function tourNext() {
+  if (!tour.active) return;
+  if (tour.index + 1 < tour.seq.length) tourGoto(tour.index + 1);
+  else stopTour();
+}
+function tourTogglePause() {
+  if (!tour.active) return;
+  tour.paused = !tour.paused;
+  tourEls.pause.textContent = tour.paused ? "▶" : "⏸";
+  if ("speechSynthesis" in window) {
+    if (tour.paused) window.speechSynthesis.pause();
+    else window.speechSynthesis.resume();
+  }
+}
+
+// 每帧推进导览：飞抵动画结束后绕行星环绕讲解约 6 秒，再前往下一个
 const TOUR_DWELL = 6;
 function updateTour(dt) {
   if (!tour.active) return;
+  // 抵达后开启环绕镜头（飞行/飞抵途中关闭）
+  controls.autoRotate = !flyTo && !fly.active;
   // 飞行途中进度停在本站起点；悬停讲解时按 dwell 推进本站进度
   const dwellFrac = flyTo ? 0 : Math.min(tour.dwell / TOUR_DWELL, 1);
   setTourProgress((tour.index + dwellFrac) / tour.seq.length);
-  if (flyTo) return;
+  if (flyTo || tour.paused) return; // 暂停时镜头仍环绕,但不推进站点
   tour.dwell += dt;
-  if (tour.dwell > TOUR_DWELL) {
-    if (tour.index + 1 < tour.seq.length) tourGoto(tour.index + 1);
-    else stopTour();
-  }
+  if (tour.dwell > TOUR_DWELL) tourNext();
 }
 
 // ---------- 信息卡片 ----------
@@ -821,6 +862,24 @@ document.getElementById("info-close").addEventListener("click", () => {
   currentInfoBody = null;
   focusTarget = null;
 });
+
+// ---------- 自适应分辨率（按帧率动态升降像素比）----------
+function updateAdaptive(dt) {
+  perf.acc += dt;
+  perf.frames++;
+  if (perf.acc < 1) return; // 每秒评估一次
+  const fps = perf.frames / perf.acc;
+  perf.acc = 0;
+  perf.frames = 0;
+  let d = perf.dpr;
+  if (fps < 45 && d > perf.min) d = Math.max(perf.min, d - 0.15);
+  else if (fps > 58 && d < perf.cap) d = Math.min(perf.cap, d + 0.1);
+  if (Math.abs(d - perf.dpr) > 0.001) {
+    perf.dpr = d;
+    renderer.setPixelRatio(d);
+    composer.setPixelRatio?.(d);
+  }
+}
 
 // ---------- 动画循环 ----------
 const tmpVec = new THREE.Vector3();
@@ -886,6 +945,7 @@ function animate() {
 
   updateTour(dt);
   updateHud(dt);
+  updateAdaptive(dt);
 
   // WebXR 模式下直接渲染（EffectComposer 不支持 XR 多视图）；否则走 Bloom 后期管线
   if (renderer.xr.isPresenting) renderer.render(scene, camera);
@@ -922,6 +982,9 @@ document.getElementById("tour-toggle").addEventListener("click", () => {
   if (tour.active) stopTour();
   else startTour();
 });
+document.getElementById("tour-prev").addEventListener("click", tourPrev);
+document.getElementById("tour-next").addEventListener("click", tourNext);
+document.getElementById("tour-pause").addEventListener("click", tourTogglePause);
 
 document.getElementById("toggle-voice").addEventListener("change", (e) => {
   tour.voice = e.target.checked;
