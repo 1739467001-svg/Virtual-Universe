@@ -39,3 +39,17 @@ test("加载无报错 + 关键交互 + 截图", async ({ page }, info) => {
 
   expect(errors, "控制台错误：\n" + errors.join("\n")).toEqual([]);
 });
+
+// 木星特写：用于人工/视觉核对大红斑「风暴之眼」与真实贴图是否对齐
+test("木星特写截图", async ({ page }, info) => {
+  await page.goto("/", { waitUntil: "load" });
+  await page.waitForSelector("#loading.hidden", { timeout: 30_000 });
+  await page.waitForTimeout(1500);
+  // 点击行星跳转里的「木星」按钮，飞抵并悬停
+  await page.getByRole("button", { name: "木星", exact: true }).click();
+  await page.waitForTimeout(3500); // 等飞抵动画(1.6s)+稳定
+  const shot = info.outputPath(`Jupiter-${info.project.name}.png`);
+  await page.screenshot({ path: shot });
+  await info.attach(`Jupiter-${info.project.name}`, { path: shot, contentType: "image/png" });
+});
+
