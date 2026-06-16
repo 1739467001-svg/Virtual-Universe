@@ -736,7 +736,7 @@ function updateMeteors(dt) {
 }
 
 // ---------- 时间与播放控制 ----------
-const state = { playing: true, speed: 15 }; // speed: 模拟天数/秒 的缩放系数（只驱动公转）
+const state = { playing: true, speed: 5 }; // speed: 模拟天数/秒 的缩放系数（只驱动公转）
 // 自转与时间倍率解耦：自转独立用一个观察友好的慢速基准（地球约 30 秒一圈），
 // 不随速度滑块暴冲；同时保留行星间相对快慢（木星快 / 金星几乎不动 / 逆向自转）。
 const SPIN_BASE = 1 / 30; // 「1 天自转周期」的天体每秒转多少圈（=30 秒一圈）
@@ -1060,10 +1060,22 @@ document.getElementById("ephemeris-align").addEventListener("click", () => {
 
 const speedInput = document.getElementById("speed");
 const speedVal = document.getElementById("speed-val");
-speedInput.addEventListener("input", () => {
-  state.speed = Number(speedInput.value);
-  speedVal.textContent = `${state.speed}×`;
+const presetWrap = document.getElementById("speed-presets");
+const presetBtns = [...presetWrap.querySelectorAll("button")];
+
+// 统一入口：设定整个系统的时间倍率，同步滑块、数字与档位高亮
+function setSpeed(v) {
+  state.speed = v;
+  speedInput.value = String(v);
+  speedVal.textContent = `${v}×`;
+  for (const b of presetBtns) b.classList.toggle("active", Number(b.dataset.speed) === v);
+}
+speedInput.addEventListener("input", () => setSpeed(Number(speedInput.value)));
+presetWrap.addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (b) setSpeed(Number(b.dataset.speed));
 });
+setSpeed(state.speed); // 初始化高亮（默认 5×）
 
 document.getElementById("toggle-orbits").addEventListener("change", (e) => {
   for (const obj of planetObjects) obj.orbit.visible = e.target.checked;

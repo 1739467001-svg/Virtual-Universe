@@ -26,8 +26,16 @@
       <button id="ephemeris-align" title="把行星对齐到今天的真实角位置">📅 真实星历</button>
       <button id="tour-toggle" title="自动导览：依次飞向每颗行星并讲解">🎬 导览</button>
       <span class="label">速度</span>
-      <input id="speed" type="range" min="0" max="500" value="15" />
-      <span id="speed-val">15×</span>
+      <input id="speed" type="range" min="0" max="500" value="5" />
+      <span id="speed-val">5×</span>
+      <span id="speed-presets">
+        <button data-speed="1">1×</button>
+        <button data-speed="2">2×</button>
+        <button data-speed="5">5×</button>
+        <button data-speed="10">10×</button>
+        <button data-speed="20">20×</button>
+        <button data-speed="50">50×</button>
+      </span>
     </div>
     <div class="row">
       <label><input id="toggle-orbits" type="checkbox" checked /> 轨道线</label>
