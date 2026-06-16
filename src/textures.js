@@ -218,6 +218,48 @@ export function gasAtmosphereTexture(base, seed) {
   });
 }
 
+// 大红斑涡旋：透明底上的旋臂状风暴(红赭色),贴在木星表面并自旋 → 翻涌的「风暴之眼」
+export function redSpotTexture(seed = 13) {
+  return canvasTex(256, 256, (ctx, w, h) => {
+    const rand = rng(seed);
+    const cx = w / 2, cy = h / 2;
+    ctx.clearRect(0, 0, w, h);
+    // 椭圆软边底色
+    const rg = ctx.createRadialGradient(cx, cy, 2, cx, cy, w / 2);
+    rg.addColorStop(0, "rgba(214,96,62,0.95)");
+    rg.addColorStop(0.55, "rgba(176,64,40,0.8)");
+    rg.addColorStop(0.85, "rgba(150,58,40,0.35)");
+    rg.addColorStop(1, "rgba(150,58,40,0)");
+    ctx.fillStyle = rg;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, w / 2 - 2, h / 2 * 0.78, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // 旋臂：从中心向外的对数螺旋细丝,营造涡旋
+    for (let s = 0; s < 5; s++) {
+      const off = (s / 5) * Math.PI * 2;
+      ctx.beginPath();
+      for (let a = 0; a < Math.PI * 5; a += 0.12) {
+        const r = 6 + a * 7.5;
+        if (r > w / 2 - 4) break;
+        const x = cx + Math.cos(a + off) * r;
+        const y = cy + Math.sin(a + off) * r * 0.78;
+        a === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = s % 2 ? "rgba(245,200,160,0.35)" : "rgba(120,40,26,0.4)";
+      ctx.lineWidth = 2 + rand() * 2;
+      ctx.stroke();
+    }
+    // 高亮内核
+    const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, w * 0.18);
+    core.addColorStop(0, "rgba(240,180,140,0.6)");
+    core.addColorStop(1, "rgba(240,180,140,0)");
+    ctx.fillStyle = core;
+    ctx.beginPath();
+    ctx.arc(cx, cy, w * 0.18, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
 // 冰巨行星：平滑渐变 + 少量淡带（天王星/海王星）
 function iceGiantTexture(base, seed) {
   return canvasTex(1024, 512, (ctx, w, h) => {

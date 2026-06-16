@@ -10,7 +10,7 @@ import { SUN, PLANETS, DWARFS } from "./data.js";
 import {
   planetTexture, cloudTexture, ringTexture, sunTexture,
   earthNightTexture, earthNormalTexture, earthSpecularTexture, moonTexture,
-  gasAtmosphereTexture,
+  gasAtmosphereTexture, redSpotTexture,
 } from "./textures.js";
 import { helioLongitude, earthDistanceAU, sunDistanceAU } from "./ephemeris.js";
 
@@ -371,6 +371,34 @@ for (const p of [...PLANETS, ...DWARFS]) {
     mesh.add(atmo);
   }
 
+  // 大红斑「风暴之眼」：贴在木星表面、随本体公转/自转固定位置，并就地自旋翻涌。
+  // 位置用经纬度（度）定位，方便对齐真实贴图后微调：SPOT_LON 调左右、SPOT_LAT 调上下。
+  let spot = null;
+  if (p.redSpot) {
+    const SPOT_LON = 150; // 经度（°）：绕轴左右移动红斑
+    const SPOT_LAT = -20; // 纬度（°）：负为南半球（大红斑在木星南半球）
+    const lon = THREE.MathUtils.degToRad(SPOT_LON);
+    const lat = THREE.MathUtils.degToRad(SPOT_LAT);
+    const R = p.size * 1.02;
+    const normal = new THREE.Vector3(
+      Math.cos(lat) * Math.cos(lon),
+      Math.sin(lat),
+      Math.cos(lat) * Math.sin(lon)
+    );
+    spot = new THREE.Mesh(
+      new THREE.CircleGeometry(p.size * 0.42, 48),
+      new THREE.MeshBasicMaterial({
+        map: redSpotTexture(13),
+        transparent: true,
+        depthWrite: false,
+        opacity: 0.9,
+      })
+    );
+    spot.position.copy(normal).multiplyScalar(R);
+    spot.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal); // 面朝外
+    mesh.add(spot);
+  }
+
   // 行星环（土星 / 天王星）——位于赤道面，随倾角一起倾斜
   if (p.ring) {
     const ringGeo = new THREE.RingGeometry(p.ring.inner, p.ring.outer, 160, 1);
@@ -424,7 +452,7 @@ for (const p of [...PLANETS, ...DWARFS]) {
   label.position.set(0, p.size + 1.5, 0);
   holder.add(label);
 
-  planetObjects.push({ body: p, pivot, mesh, clouds, atmo, angle: p.tilt, orbit, label });
+  planetObjects.push({ body: p, pivot, mesh, clouds, atmo, spot, angle: p.tilt, orbit, label });
 }
 
 // ---------- 小行星带（火星 ↔ 木星之间）----------
@@ -926,7 +954,7 @@ function animate() {
     asteroidBelt.rotation.y += dt * asteroidBelt.userData.spin;
 
     for (const obj of planetObjects) {
-      const { body, pivot, mesh, clouds, atmo } = obj;
+      const { body, pivot, mesh, clouds, atmo, spot } = obj;
       // 公转：周期(年) -> 天，角速度 = 2π / (period*365)
       obj.angle += (dayStep * Math.PI * 2) / (body.orbitPeriod * 365);
       pivot.rotation.y = obj.angle;
@@ -936,6 +964,8 @@ function animate() {
       if (clouds) clouds.rotation.y += (dayStep * Math.PI * 2) / (body.rotationPeriod * 0.85);
       // 气态巨行星大气叠层：相对本体缓慢反向漂移，营造云带流动/风暴翻涌
       if (atmo) atmo.rotation.y += dayStep * 0.0009;
+      // 大红斑就地自旋（绕自身法线），呈现翻涌的风暴之眼
+      if (spot) spot.rotateZ(dt * 0.25);
 
       // 卫星公转
       if (body._moonPivots) {
