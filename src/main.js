@@ -736,7 +736,10 @@ function updateMeteors(dt) {
 }
 
 // ---------- 时间与播放控制 ----------
-const state = { playing: true, speed: 60 }; // speed: 模拟天数/秒 的缩放系数
+const state = { playing: true, speed: 15 }; // speed: 模拟天数/秒 的缩放系数（默认放缓，避免自转过快）
+// 自转柔化：自转周期(天)远小于公转周期，若与公转共用倍率会快得发晕。
+// 用一个独立系数把自转放慢成优雅的旋转，同时保留行星之间的相对快慢（真实感）。
+const SPIN_SCALE = 0.05;
 const clock = new THREE.Clock();
 
 // ---------- 点击聚焦行星 ----------
@@ -958,10 +961,11 @@ function animate() {
       // 公转：周期(年) -> 天，角速度 = 2π / (period*365)
       obj.angle += (dayStep * Math.PI * 2) / (body.orbitPeriod * 365);
       pivot.rotation.y = obj.angle;
-      // 自转：周期(天)
-      mesh.rotation.y += (dayStep * Math.PI * 2) / (body.rotationPeriod * 1);
+      // 自转：周期(天)，经 SPIN_SCALE 柔化，避免高速倍率下打转过快
+      const spinStep = dayStep * SPIN_SCALE;
+      mesh.rotation.y += (spinStep * Math.PI * 2) / (body.rotationPeriod * 1);
       // 云层比地表略快地飘动
-      if (clouds) clouds.rotation.y += (dayStep * Math.PI * 2) / (body.rotationPeriod * 0.85);
+      if (clouds) clouds.rotation.y += (spinStep * Math.PI * 2) / (body.rotationPeriod * 0.85);
       // 气态巨行星大气叠层：相对本体缓慢反向漂移，营造云带流动/风暴翻涌
       if (atmo) atmo.rotation.y += dayStep * 0.0009;
       // 大红斑就地自旋（绕自身法线），呈现翻涌的风暴之眼
