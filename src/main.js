@@ -10,6 +10,7 @@ import { SUN, PLANETS, DWARFS } from "./data.js";
 import {
   planetTexture, cloudTexture, ringTexture, sunTexture,
   earthNightTexture, earthNormalTexture, earthSpecularTexture, moonTexture,
+  gasAtmosphereTexture,
 } from "./textures.js";
 import { helioLongitude, earthDistanceAU, sunDistanceAU } from "./ephemeris.js";
 
@@ -353,6 +354,23 @@ for (const p of [...PLANETS, ...DWARFS]) {
     mesh.add(clouds);
   }
 
+  // 气态巨行星大气叠层：半透明云带，随本体略有速度差漂移 → 云带/风暴翻涌的流动感
+  let atmo = null;
+  if (isGiant) {
+    atmo = new THREE.Mesh(
+      new THREE.SphereGeometry(p.size * 1.015, 64, 64),
+      new THREE.MeshStandardMaterial({
+        map: gasAtmosphereTexture(p.color, (p.seed || 3) + 100),
+        transparent: true,
+        depthWrite: false,
+        opacity: 0.5,
+        roughness: 0.9,
+        metalness: 0.0,
+      })
+    );
+    mesh.add(atmo);
+  }
+
   // 行星环（土星 / 天王星）——位于赤道面，随倾角一起倾斜
   if (p.ring) {
     const ringGeo = new THREE.RingGeometry(p.ring.inner, p.ring.outer, 160, 1);
@@ -406,7 +424,7 @@ for (const p of [...PLANETS, ...DWARFS]) {
   label.position.set(0, p.size + 1.5, 0);
   holder.add(label);
 
-  planetObjects.push({ body: p, pivot, mesh, clouds, angle: p.tilt, orbit, label });
+  planetObjects.push({ body: p, pivot, mesh, clouds, atmo, angle: p.tilt, orbit, label });
 }
 
 // ---------- 小行星带（火星 ↔ 木星之间）----------
@@ -908,7 +926,7 @@ function animate() {
     asteroidBelt.rotation.y += dt * asteroidBelt.userData.spin;
 
     for (const obj of planetObjects) {
-      const { body, pivot, mesh, clouds } = obj;
+      const { body, pivot, mesh, clouds, atmo } = obj;
       // 公转：周期(年) -> 天，角速度 = 2π / (period*365)
       obj.angle += (dayStep * Math.PI * 2) / (body.orbitPeriod * 365);
       pivot.rotation.y = obj.angle;
@@ -916,6 +934,8 @@ function animate() {
       mesh.rotation.y += (dayStep * Math.PI * 2) / (body.rotationPeriod * 1);
       // 云层比地表略快地飘动
       if (clouds) clouds.rotation.y += (dayStep * Math.PI * 2) / (body.rotationPeriod * 0.85);
+      // 气态巨行星大气叠层：相对本体缓慢反向漂移，营造云带流动/风暴翻涌
+      if (atmo) atmo.rotation.y += dayStep * 0.0009;
 
       // 卫星公转
       if (body._moonPivots) {

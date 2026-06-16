@@ -192,6 +192,32 @@ function gasGiantTexture(base, seed, redSpot) {
   });
 }
 
+// 气态巨行星大气叠层：半透明的纬向云带条纹（带状波动），叠在本体外、以微小速度差漂移，
+// 让木星/土星的云带与风暴区看起来在「流动、翻涌」。用 canvas 自身 alpha 做透明。
+export function gasAtmosphereTexture(base, seed) {
+  return canvasTex(1024, 512, (ctx, w, h) => {
+    const rand = rng(seed);
+    ctx.clearRect(0, 0, w, h); // 透明底，只画云丝
+    // 多条沿纬度的波浪云带
+    for (let i = 0; i < 220; i++) {
+      const yy = rand() * h;
+      const amp = 2 + rand() * 6;
+      const freq = 1 + rand() * 4;
+      const phase = rand() * Math.PI * 2;
+      ctx.strokeStyle = shade(base, (rand() - 0.5) * 0.6);
+      ctx.globalAlpha = 0.04 + rand() * 0.1;
+      ctx.lineWidth = 1 + rand() * 3;
+      ctx.beginPath();
+      ctx.moveTo(0, yy);
+      for (let x = 0; x <= w; x += 24) {
+        ctx.lineTo(x, yy + Math.sin((x / w) * Math.PI * 2 * freq + phase) * amp);
+      }
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  });
+}
+
 // 冰巨行星：平滑渐变 + 少量淡带（天王星/海王星）
 function iceGiantTexture(base, seed) {
   return canvasTex(1024, 512, (ctx, w, h) => {
