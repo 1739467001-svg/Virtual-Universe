@@ -10,3 +10,8 @@ Thumbs.db
 
 # 日志
 *.log
+
+# Playwright 测试产物
+/test-results/
+/playwright-report/
+/playwright/.cache/

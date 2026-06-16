@@ -1,0 +1,13 @@
+{
+  "name": "virtual-universe",
+  "version": "0.0.0",
+  "private": true,
+  "description": "VR 太阳系漫游 —— 纯静态 Three.js 应用",
+  "scripts": {
+    "test:e2e": "playwright test",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  }
+}
