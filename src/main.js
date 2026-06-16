@@ -728,9 +728,21 @@ function tourGoto(i) {
   tour.index = i;
   tour.dwell = 0;
   const mesh = tour.seq[i];
+  const body = mesh.userData.body;
   flyToBody(mesh);
-  showInfo(mesh.userData.body);
-  speak(mesh.userData.body);
+  showInfo(body);
+  speak(body);
+  // 更新字幕与进度
+  document.getElementById("tour-step").textContent =
+    `第 ${i + 1} / ${tour.seq.length} 站`;
+  document.getElementById("tour-stop-name").textContent = body.name;
+  document.getElementById("tour-subtitle").textContent =
+    `${body.name}。${body.desc}`;
+}
+
+function setTourProgress(frac) {
+  const f = Math.max(0, Math.min(1, frac));
+  document.getElementById("tour-fill").style.width = `${(f * 100).toFixed(1)}%`;
 }
 
 function startTour() {
@@ -740,6 +752,7 @@ function startTour() {
   flyTo = null;
   controls.enabled = true;
   document.getElementById("tour-toggle").classList.add("active");
+  document.getElementById("tour-bar").classList.remove("hidden");
   tourGoto(0);
 }
 
@@ -748,13 +761,19 @@ function stopTour() {
   tour.dwell = 0;
   if ("speechSynthesis" in window) window.speechSynthesis.cancel();
   document.getElementById("tour-toggle").classList.remove("active");
+  document.getElementById("tour-bar").classList.add("hidden");
 }
 
 // 每帧推进导览：飞抵动画结束后悬停讲解约 6 秒，再前往下一个
+const TOUR_DWELL = 6;
 function updateTour(dt) {
-  if (!tour.active || flyTo) return;
+  if (!tour.active) return;
+  // 飞行途中进度停在本站起点；悬停讲解时按 dwell 推进本站进度
+  const dwellFrac = flyTo ? 0 : Math.min(tour.dwell / TOUR_DWELL, 1);
+  setTourProgress((tour.index + dwellFrac) / tour.seq.length);
+  if (flyTo) return;
   tour.dwell += dt;
-  if (tour.dwell > 6) {
+  if (tour.dwell > TOUR_DWELL) {
     if (tour.index + 1 < tour.seq.length) tourGoto(tour.index + 1);
     else stopTour();
   }

@@ -46,6 +46,16 @@
     <ul id="info-stats"></ul>
   </div>
 
+  <!-- 导览字幕 + 进度条（屏幕底部，仅导览时显示）-->
+  <div id="tour-bar" class="hidden">
+    <div id="tour-progress">
+      <span id="tour-step">第 1 / 9 站</span>
+      <span id="tour-stop-name">太阳</span>
+      <div id="tour-track"><div id="tour-fill"></div></div>
+    </div>
+    <p id="tour-subtitle"></p>
+  </div>
+
   <!-- 飞行仪表盘 + 小地图雷达（右下角）-->
   <div id="flight-hud">
     <canvas id="radar" width="170" height="170"></canvas>
