@@ -1028,6 +1028,12 @@ for (const b of allBodies) {
   jumpRow.appendChild(btn);
 }
 
+// 触屏设备隐藏「自由飞行」：它依赖指针锁定 + WASD 键盘，移动端无法操作
+if (isMobile) {
+  document.getElementById("fly-toggle").style.display = "none";
+  document.getElementById("fly-hint").style.display = "none";
+}
+
 // 导览顺序：太阳 → 八大行星（矮行星不纳入，保持节奏紧凑）
 tour.seq = [sunMesh, ...planetObjects.filter((o) => !o.body.dwarf).map((o) => o.mesh)];
 

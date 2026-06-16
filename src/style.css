@@ -269,8 +269,10 @@ canvas { display: block; }
     left: 8px;
     right: 8px;
     bottom: auto;
-    top: 8px;
+    top: max(8px, env(safe-area-inset-top));
     max-width: none;
+    max-height: 42vh;
+    overflow-y: auto;
     padding: 8px;
   }
   #controls .row { gap: 6px; flex-wrap: wrap; }
