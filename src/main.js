@@ -1196,6 +1196,75 @@ if (isMobile) {
 // 导览顺序：太阳 → 八大行星（矮行星不纳入，保持节奏紧凑）
 tour.seq = [sunMesh, ...planetObjects.filter((o) => !o.body.dwarf).map((o) => o.mesh)];
 
+// ---------- 偏好持久化（localStorage：记住上次的设置）----------
+const PREF_KEY = "vu_prefs";
+const orbitsEl = document.getElementById("toggle-orbits");
+const labelsEl = document.getElementById("toggle-labels");
+const voiceEl = document.getElementById("toggle-voice");
+
+function loadPrefs() {
+  try { return JSON.parse(localStorage.getItem(PREF_KEY)) || {}; } catch { return {}; }
+}
+function savePrefs() {
+  try {
+    localStorage.setItem(PREF_KEY, JSON.stringify({
+      speed: state.speed,
+      spin: state.spinSpeed,
+      vol: Number(musicVol.value) / 100,
+      mood: music.mood,
+      music: musicWanted,
+      orbits: orbitsEl.checked,
+      labels: labelsEl.checked,
+      voice: voiceEl.checked,
+      panelCollapsed: controlsEl.classList.contains("collapsed"),
+      speedCollapsed: speedPanel.classList.contains("collapsed"),
+    }));
+  } catch { /* 隐私模式等场景忽略 */ }
+}
+
+function setPanelCollapsed(collapsed) {
+  controlsEl.classList.toggle("collapsed", collapsed);
+  panelCollapse.textContent = collapsed ? "＋" : "－";
+  panelCollapse.title = collapsed ? "展开控制面板" : "收起控制面板";
+}
+function setSpeedCollapsed(hidden) {
+  speedPanel.classList.toggle("collapsed", hidden);
+  speedCollapse.setAttribute("aria-expanded", String(!hidden));
+  speedCollapse.textContent = hidden ? "⏱ 速度 ▼" : "⏱ 速度 ▲";
+}
+
+// 应用已保存偏好（覆盖默认值；无记录则保持当前/设备默认）
+const prefs = loadPrefs();
+if (Number.isFinite(prefs.speed)) setSpeed(prefs.speed);
+if (Number.isFinite(prefs.spin)) setSpinSpeed(prefs.spin);
+if (Number.isFinite(prefs.vol)) {
+  musicVol.value = String(Math.round(prefs.vol * 100));
+  music.setVolume(prefs.vol);
+}
+if (prefs.mood && moodBtns.some((b) => b.dataset.mood === prefs.mood)) {
+  music.setMood(prefs.mood);
+  for (const b of moodBtns) b.classList.toggle("active", b.dataset.mood === prefs.mood);
+}
+if (prefs.music === false) {
+  musicWanted = false;
+  musicBtn.classList.remove("active");
+  musicBtn.textContent = "🔇 音乐";
+}
+for (const [el, v] of [[orbitsEl, prefs.orbits], [labelsEl, prefs.labels], [voiceEl, prefs.voice]]) {
+  if (typeof v === "boolean" && el.checked !== v) {
+    el.checked = v;
+    el.dispatchEvent(new Event("change"));
+  }
+}
+if (typeof prefs.panelCollapsed === "boolean") setPanelCollapsed(prefs.panelCollapsed);
+if (typeof prefs.speedCollapsed === "boolean") setSpeedCollapsed(prefs.speedCollapsed);
+
+// 任何控件变化后保存（点击在 class 切换后再快照）
+controlsEl.addEventListener("input", savePrefs);
+controlsEl.addEventListener("change", savePrefs);
+controlsEl.addEventListener("click", () => setTimeout(savePrefs, 0));
+musicBtn.addEventListener("click", () => setTimeout(savePrefs, 0));
+
 // ---------- 自适应窗口 ----------
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
