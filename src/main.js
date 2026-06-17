@@ -376,8 +376,10 @@ for (const p of [...PLANETS, ...DWARFS]) {
   // 位置用经纬度（度）定位，方便对齐真实贴图后微调：SPOT_LON 调左右、SPOT_LAT 调上下。
   let spot = null;
   if (p.redSpot) {
-    const SPOT_LON = 150; // 经度（°）：绕轴左右移动红斑
-    const SPOT_LAT = -20; // 纬度（°）：负为南半球（大红斑在木星南半球）
+    // 对齐 jupiter.jpg 中大红斑实测位置（贴图内 ≈ 水平22.5% / 垂直62.5%）：
+    //   经度 lon = 180 − 360×u，纬度 lat = 90 − 180×v
+    const SPOT_LON = 99;   // 经度（°）：绕轴左右移动红斑
+    const SPOT_LAT = -22.5; // 纬度（°）：负为南半球（大红斑在木星南半球）
     const lon = THREE.MathUtils.degToRad(SPOT_LON);
     const lat = THREE.MathUtils.degToRad(SPOT_LAT);
     const R = p.size * 1.02;
@@ -387,7 +389,7 @@ for (const p of [...PLANETS, ...DWARFS]) {
       Math.cos(lat) * Math.sin(lon)
     );
     spot = new THREE.Mesh(
-      new THREE.CircleGeometry(p.size * 0.42, 48),
+      new THREE.CircleGeometry(p.size * 0.3, 48),
       new THREE.MeshBasicMaterial({
         map: redSpotTexture(13),
         transparent: true,
