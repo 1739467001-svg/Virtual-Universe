@@ -736,10 +736,10 @@ function updateMeteors(dt) {
 }
 
 // ---------- 时间与播放控制 ----------
-const state = { playing: true, speed: 5 }; // speed: 模拟天数/秒 的缩放系数（只驱动公转）
-// 自转与时间倍率解耦：自转独立用一个观察友好的慢速基准（地球约 30 秒一圈），
-// 不随速度滑块暴冲；同时保留行星间相对快慢（木星快 / 金星几乎不动 / 逆向自转）。
-const SPIN_BASE = 1 / 30; // 「1 天自转周期」的天体每秒转多少圈（=30 秒一圈）
+const state = { playing: true, speed: 5, spinSpeed: 1 }; // speed: 公转倍率(天/秒)；spinSpeed: 自转倍率
+// 自转与公转分开控制：自转用独立基准(地球约 30 秒一圈) × spinSpeed，
+// 不随公转倍率变化；保留行星间相对快慢（木星快 / 金星几乎不动 / 逆向自转）。
+const SPIN_BASE = 1 / 30; // spinSpeed=1 时，「1 天自转周期」的天体每秒转多少圈（=30 秒一圈）
 const clock = new THREE.Clock();
 
 // ---------- 点击聚焦行星 ----------
@@ -961,8 +961,8 @@ function animate() {
       // 公转：周期(年) -> 天，角速度 = 2π / (period*365)
       obj.angle += (dayStep * Math.PI * 2) / (body.orbitPeriod * 365);
       pivot.rotation.y = obj.angle;
-      // 自转：与时间倍率解耦的慢速基准（dt 实时），观察友好且不随速度滑块暴冲
-      const spinRev = (dt * SPIN_BASE) / body.rotationPeriod; // 本帧自转的「圈数」
+      // 自转：独立倍率 spinSpeed × 慢速基准（dt 实时），与公转分开控制
+      const spinRev = (dt * SPIN_BASE * state.spinSpeed) / body.rotationPeriod; // 本帧自转的「圈数」
       mesh.rotation.y += spinRev * Math.PI * 2;
       // 云层比地表略快地飘动
       if (clouds) clouds.rotation.y += (spinRev / 0.85) * Math.PI * 2;
@@ -1076,6 +1076,24 @@ presetWrap.addEventListener("click", (e) => {
   if (b) setSpeed(Number(b.dataset.speed));
 });
 setSpeed(state.speed); // 初始化高亮（默认 5×）
+
+// 自转倍率（独立于公转）
+const spinInput = document.getElementById("spin");
+const spinVal = document.getElementById("spin-val");
+const spinPresetWrap = document.getElementById("spin-presets");
+const spinPresetBtns = [...spinPresetWrap.querySelectorAll("button")];
+function setSpinSpeed(v) {
+  state.spinSpeed = v;
+  spinInput.value = String(v);
+  spinVal.textContent = `${v}×`;
+  for (const b of spinPresetBtns) b.classList.toggle("active", Number(b.dataset.spin) === v);
+}
+spinInput.addEventListener("input", () => setSpinSpeed(Number(spinInput.value)));
+spinPresetWrap.addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (b) setSpinSpeed(Number(b.dataset.spin));
+});
+setSpinSpeed(state.spinSpeed); // 初始化高亮（默认 1×）
 
 document.getElementById("toggle-orbits").addEventListener("change", (e) => {
   for (const obj of planetObjects) obj.orbit.visible = e.target.checked;
