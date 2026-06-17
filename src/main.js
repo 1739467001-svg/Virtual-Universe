@@ -793,7 +793,7 @@ function selectBody(mesh) {
 }
 
 // ---------- 自动导览 / 语音解说 ----------
-const tour = { active: false, paused: false, narrating: false, index: 0, dwell: 0, voice: true, seq: [] };
+const tour = { active: false, paused: false, index: 0, dwell: 0, dwellTarget: 6, voice: true, seq: [] };
 // 缓存 DOM,避免每帧 getElementById
 const tourEls = {
   bar: document.getElementById("tour-bar"),
@@ -806,19 +806,44 @@ const tourEls = {
 };
 controls.autoRotateSpeed = 0.8; // 导览环绕镜头的转速(温和)
 
+// 语音：显式选中文嗓音 + 等待 voiceschanged + keepalive(治 Chrome「只响第一句/中途停」)
+let _zhVoice = null;
+function pickVoice() {
+  if (!("speechSynthesis" in window)) return;
+  const vs = window.speechSynthesis.getVoices();
+  _zhVoice = vs.find((v) => /zh|cmn|Chinese|普通话/i.test(`${v.lang} ${v.name}`)) || _zhVoice;
+}
+if ("speechSynthesis" in window) {
+  pickVoice();
+  window.speechSynthesis.onvoiceschanged = pickVoice;
+  // Chrome 长语音会莫名暂停，定期 resume 保活
+  setInterval(() => {
+    const s = window.speechSynthesis;
+    if (s.speaking && !s.paused) s.resume();
+  }, 6000);
+}
+
 let _utter = null; // 保留引用，避免长解说被 GC 提前中断
-function speak(body, onEnd) {
-  if (!tour.voice || !("speechSynthesis" in window)) { onEnd && onEnd(); return; }
+function speak(body) {
+  if (!tour.voice || !("speechSynthesis" in window)) return;
   const synth = window.speechSynthesis;
   synth.cancel();
-  const u = new SpeechSynthesisUtterance(`${body.name}。${body.desc}`);
-  u.lang = "zh-CN";
-  u.rate = 1.0;
-  u.onend = () => { if (onEnd) onEnd(); };
-  u.onerror = () => { if (onEnd) onEnd(); };
-  _utter = u;
-  // 规避 Chrome 「cancel() 紧接 speak() 把新语音也取消」的竞态：延一拍再播
-  setTimeout(() => synth.speak(u), 130);
+  // 规避 Chrome「cancel() 紧接 speak() 把新语音一起取消」的竞态：延一拍再播
+  setTimeout(() => {
+    const u = new SpeechSynthesisUtterance(`${body.name}。${body.desc}`);
+    u.lang = "zh-CN";
+    if (_zhVoice) u.voice = _zhVoice;
+    u.rate = 1.0;
+    _utter = u;
+    synth.speak(u);
+  }, 150);
+}
+
+// 估算解说时长（秒）：用于导览停留，确定性强，不依赖可能不触发的 onend
+function narrationSeconds(body) {
+  if (!tour.voice) return TOUR_DWELL;
+  const len = `${body.name}。${body.desc}`.length;
+  return THREE.MathUtils.clamp(len * 0.18 + 1.5, 4, 16);
 }
 
 function tourGoto(i) {
@@ -828,8 +853,8 @@ function tourGoto(i) {
   const body = mesh.userData.body;
   flyToBody(mesh);
   showInfo(body);
-  tour.narrating = true;
-  speak(body, () => { tour.narrating = false; }); // 解说结束后才允许前往下一站
+  tour.dwellTarget = narrationSeconds(body); // 本站停留 = 估算解说时长
+  speak(body);
   // 更新字幕与进度
   tourEls.step.textContent = `第 ${i + 1} / ${tour.seq.length} 站`;
   tourEls.name.textContent = body.name;
@@ -857,7 +882,6 @@ function startTour() {
 function stopTour() {
   tour.active = false;
   tour.paused = false;
-  tour.narrating = false;
   tour.dwell = 0;
   controls.autoRotate = false;
   if ("speechSynthesis" in window) window.speechSynthesis.cancel();
@@ -885,23 +909,19 @@ function tourTogglePause() {
   }
 }
 
-// 每帧推进导览：抵达后绕行星环绕，「解说讲完」再飞下一站
-const TOUR_MIN_DWELL = 2.5;  // 最短停留（语音很短/关闭时也别切太快）
-const TOUR_MAX_DWELL = 30;   // 兜底：语音异常未触发 onend 时强制前进
-const TOUR_DWELL = 6;        // 关闭语音时的固定停留
+// 每帧推进导览：抵达后绕行星环绕，停留 = 估算解说时长，讲完再飞下一站
+const TOUR_DWELL = 6; // 关闭语音时的固定停留
 function updateTour(dt) {
   if (!tour.active) return;
   // 抵达后开启环绕镜头（飞行/飞抵途中关闭）
   controls.autoRotate = !flyTo && !fly.active;
-  // 进度：飞行途中停在本站起点；讲解中渐进；讲完置满
-  const stationFrac = flyTo ? 0 : (tour.narrating ? Math.min(tour.dwell / 10, 0.9) : 1);
+  const target = tour.dwellTarget || TOUR_DWELL;
+  // 进度：飞行途中停在本站起点；停留期间按时长渐进
+  const stationFrac = flyTo ? 0 : Math.min(tour.dwell / target, 1);
   setTourProgress((tour.index + stationFrac) / tour.seq.length);
   if (flyTo || tour.paused) return; // 暂停时镜头仍环绕,但不推进站点
   tour.dwell += dt;
-  const ready = tour.voice
-    ? (!tour.narrating && tour.dwell > TOUR_MIN_DWELL) || tour.dwell > TOUR_MAX_DWELL
-    : tour.dwell > TOUR_DWELL;
-  if (ready) tourNext();
+  if (tour.dwell > target) tourNext();
 }
 
 // ---------- 信息卡片 ----------
