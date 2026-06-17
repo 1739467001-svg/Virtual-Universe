@@ -10,6 +10,12 @@ async function expandPanel(page) {
   if (collapsed) await page.locator("#panel-collapse").click();
 }
 
+// 速度子面板也可能默认折叠（移动端），需要时展开
+async function expandSpeedPanel(page) {
+  const hidden = await page.locator("#speed-panel").evaluate((el) => el.classList.contains("collapsed"));
+  if (hidden) await page.locator("#speed-collapse").click();
+}
+
 test("加载无报错 + 关键交互 + 截图", async ({ page }, info) => {
   const errors = [];
   page.on("console", (m) => { if (m.type() === "error" && !isNoise(m.text())) errors.push(m.text()); });
@@ -66,6 +72,7 @@ test("设置刷新后保持", async ({ page }) => {
   await page.goto("/", { waitUntil: "load" });
   await page.waitForSelector("#loading.hidden", { timeout: 30_000 });
   await expandPanel(page);
+  await expandSpeedPanel(page);
   await page.locator('#speed-presets button[data-speed="20"]').click();
   await expect(page.locator("#speed-val")).toHaveText("20×");
   await page.reload({ waitUntil: "load" });
