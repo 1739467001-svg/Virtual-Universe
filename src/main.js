@@ -170,11 +170,28 @@ function updateFly(dt) {
     target.multiplyScalar(THREE.MathUtils.clamp(near.surfaceDist / (near.r * 3), 0.12, 1));
   }
 
+  maybeProximityNarrate(near); // 靠近某星体时自动解说
+
   // 平滑加减速，手感更顺滑
   fly.vel.lerp(target, Math.min(1, dt * 6));
   camera.position.addScaledVector(fly.vel, dt);
 
   collideBodies(); // 防止穿模
+}
+
+// 自由飞行时：飞近某个天体即自动解说（换天体才触发，离开后可再次触发）
+let _proxBody = null;
+function maybeProximityNarrate(near) {
+  if (tour.active || !near) return; // 导览进行中不打扰
+  const enter = near.r * 4 + 6;     // 进入此距离触发
+  const exit = near.r * 7 + 14;     // 远于此距离才解除（滞回，避免抖动反复触发）
+  if (near.surfaceDist < enter && near.body !== _proxBody) {
+    _proxBody = near.body;
+    showInfo(near.body);
+    speak(near.body);
+  } else if (near.body === _proxBody && near.surfaceDist > exit) {
+    _proxBody = null;
+  }
 }
 
 // ---------- 灯光 ----------
@@ -776,7 +793,7 @@ function selectBody(mesh) {
 }
 
 // ---------- 自动导览 / 语音解说 ----------
-const tour = { active: false, paused: false, index: 0, dwell: 0, voice: true, seq: [] };
+const tour = { active: false, paused: false, narrating: false, index: 0, dwell: 0, voice: true, seq: [] };
 // 缓存 DOM,避免每帧 getElementById
 const tourEls = {
   bar: document.getElementById("tour-bar"),
@@ -789,13 +806,19 @@ const tourEls = {
 };
 controls.autoRotateSpeed = 0.8; // 导览环绕镜头的转速(温和)
 
-function speak(body) {
-  if (!tour.voice || !("speechSynthesis" in window)) return;
-  window.speechSynthesis.cancel();
+let _utter = null; // 保留引用，避免长解说被 GC 提前中断
+function speak(body, onEnd) {
+  if (!tour.voice || !("speechSynthesis" in window)) { onEnd && onEnd(); return; }
+  const synth = window.speechSynthesis;
+  synth.cancel();
   const u = new SpeechSynthesisUtterance(`${body.name}。${body.desc}`);
   u.lang = "zh-CN";
   u.rate = 1.0;
-  window.speechSynthesis.speak(u);
+  u.onend = () => { if (onEnd) onEnd(); };
+  u.onerror = () => { if (onEnd) onEnd(); };
+  _utter = u;
+  // 规避 Chrome 「cancel() 紧接 speak() 把新语音也取消」的竞态：延一拍再播
+  setTimeout(() => synth.speak(u), 130);
 }
 
 function tourGoto(i) {
@@ -805,7 +828,8 @@ function tourGoto(i) {
   const body = mesh.userData.body;
   flyToBody(mesh);
   showInfo(body);
-  speak(body);
+  tour.narrating = true;
+  speak(body, () => { tour.narrating = false; }); // 解说结束后才允许前往下一站
   // 更新字幕与进度
   tourEls.step.textContent = `第 ${i + 1} / ${tour.seq.length} 站`;
   tourEls.name.textContent = body.name;
@@ -833,6 +857,7 @@ function startTour() {
 function stopTour() {
   tour.active = false;
   tour.paused = false;
+  tour.narrating = false;
   tour.dwell = 0;
   controls.autoRotate = false;
   if ("speechSynthesis" in window) window.speechSynthesis.cancel();
@@ -860,18 +885,23 @@ function tourTogglePause() {
   }
 }
 
-// 每帧推进导览：飞抵动画结束后绕行星环绕讲解约 6 秒，再前往下一个
-const TOUR_DWELL = 6;
+// 每帧推进导览：抵达后绕行星环绕，「解说讲完」再飞下一站
+const TOUR_MIN_DWELL = 2.5;  // 最短停留（语音很短/关闭时也别切太快）
+const TOUR_MAX_DWELL = 30;   // 兜底：语音异常未触发 onend 时强制前进
+const TOUR_DWELL = 6;        // 关闭语音时的固定停留
 function updateTour(dt) {
   if (!tour.active) return;
   // 抵达后开启环绕镜头（飞行/飞抵途中关闭）
   controls.autoRotate = !flyTo && !fly.active;
-  // 飞行途中进度停在本站起点；悬停讲解时按 dwell 推进本站进度
-  const dwellFrac = flyTo ? 0 : Math.min(tour.dwell / TOUR_DWELL, 1);
-  setTourProgress((tour.index + dwellFrac) / tour.seq.length);
+  // 进度：飞行途中停在本站起点；讲解中渐进；讲完置满
+  const stationFrac = flyTo ? 0 : (tour.narrating ? Math.min(tour.dwell / 10, 0.9) : 1);
+  setTourProgress((tour.index + stationFrac) / tour.seq.length);
   if (flyTo || tour.paused) return; // 暂停时镜头仍环绕,但不推进站点
   tour.dwell += dt;
-  if (tour.dwell > TOUR_DWELL) tourNext();
+  const ready = tour.voice
+    ? (!tour.narrating && tour.dwell > TOUR_MIN_DWELL) || tour.dwell > TOUR_MAX_DWELL
+    : tour.dwell > TOUR_DWELL;
+  if (ready) tourNext();
 }
 
 // ---------- 信息卡片 ----------
