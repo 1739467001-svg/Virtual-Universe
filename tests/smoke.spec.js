@@ -47,7 +47,8 @@ test("加载无报错 + 关键交互 + 截图", async ({ page }, info) => {
   expect(errors, "控制台错误：\n" + errors.join("\n")).toEqual([]);
 });
 
-// 木星特写：用于人工/视觉核对大红斑「风暴之眼」与真实贴图是否对齐test("木星特写截图", async ({ page }, info) => {
+// 木星特写：用于人工/视觉核对大红斑「风暴之眼」与真实贴图是否对齐
+test("木星特写截图", async ({ page }, info) => {
   await page.goto("/", { waitUntil: "load" });
   await page.waitForSelector("#loading.hidden", { timeout: 30_000 });
   await page.waitForTimeout(1500);
