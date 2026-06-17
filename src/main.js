@@ -13,6 +13,7 @@ import {
   gasAtmosphereTexture, redSpotTexture,
 } from "./textures.js";
 import { helioLongitude, earthDistanceAU, sunDistanceAU } from "./ephemeris.js";
+import { createAmbientMusic } from "./music.js";
 
 // ---------- 基础场景 ----------
 const scene = new THREE.Scene();
@@ -1103,6 +1104,34 @@ panelCollapse.addEventListener("click", () => {
   panelCollapse.textContent = collapsed ? "＋" : "－";
   panelCollapse.title = collapsed ? "展开控制面板" : "收起控制面板";
 });
+
+// ---------- 背景音乐（太空氛围纯音乐）----------
+const music = createAmbientMusic();
+const musicBtn = document.getElementById("music-toggle");
+let musicWanted = true; // 用户是否希望开启（默认开），受浏览器自动播放策略约束需首次手势后才能发声
+
+function reflectMusicBtn() {
+  musicBtn.classList.toggle("active", music.playing);
+  musicBtn.textContent = music.playing ? "🎵 音乐" : "🔇 音乐";
+}
+musicBtn.addEventListener("click", () => {
+  musicWanted = music.toggle();
+  reflectMusicBtn();
+});
+// 进入太阳系即播放：浏览器要求用户首次交互后才能出声，故在首个手势时启动
+function primeMusic(e) {
+  // 若首个手势正是点击音乐按钮，交给其自身的 click 处理，避免「开了又关」
+  if (!(e && e.target && e.target.closest && e.target.closest("#music-toggle"))) {
+    if (musicWanted && !music.playing) {
+      music.start();
+      reflectMusicBtn();
+    }
+  }
+  window.removeEventListener("pointerdown", primeMusic);
+  window.removeEventListener("keydown", primeMusic);
+}
+window.addEventListener("pointerdown", primeMusic);
+window.addEventListener("keydown", primeMusic);
 
 // 速度控制可折叠
 const speedPanel = document.getElementById("speed-panel");
