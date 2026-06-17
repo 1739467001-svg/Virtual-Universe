@@ -740,6 +740,8 @@ function updateMeteors(dt) {
 
 // ---------- 时间与播放控制 ----------
 const state = { playing: true, speed: 5, spinSpeed: 1 }; // speed: 公转倍率(天/秒)；spinSpeed: 自转倍率
+let prefsReady = false; // 偏好加载完成前不写入，避免初始化默认值覆盖已存设置
+function persist() { if (prefsReady) savePrefs(); } // savePrefs 在文件末定义（函数声明已提升）
 // 自转与公转分开控制：自转用独立基准(地球约 30 秒一圈) × spinSpeed，
 // 不随公转倍率变化；保留行星间相对快慢（木星快 / 金星几乎不动 / 逆向自转）。
 const SPIN_BASE = 1 / 30; // spinSpeed=1 时，「1 天自转周期」的天体每秒转多少圈（=30 秒一圈）
@@ -1046,6 +1048,7 @@ document.getElementById("tour-pause").addEventListener("click", tourTogglePause)
 document.getElementById("toggle-voice").addEventListener("change", (e) => {
   tour.voice = e.target.checked;
   if (!tour.voice && "speechSynthesis" in window) window.speechSynthesis.cancel();
+  persist();
 });
 
 // 真实星历：把每颗行星/矮行星对齐到「今天此刻」的真实日心角位置
@@ -1072,6 +1075,7 @@ function setSpeed(v) {
   speedInput.value = String(v);
   speedVal.textContent = `${v}×`;
   for (const b of presetBtns) b.classList.toggle("active", Number(b.dataset.speed) === v);
+  persist();
 }
 speedInput.addEventListener("input", () => setSpeed(Number(speedInput.value)));
 presetWrap.addEventListener("click", (e) => {
@@ -1090,6 +1094,7 @@ function setSpinSpeed(v) {
   spinInput.value = String(v);
   spinVal.textContent = `${v}×`;
   for (const b of spinPresetBtns) b.classList.toggle("active", Number(b.dataset.spin) === v);
+  persist();
 }
 spinInput.addEventListener("input", () => setSpinSpeed(Number(spinInput.value)));
 spinPresetWrap.addEventListener("click", (e) => {
@@ -1105,6 +1110,7 @@ panelCollapse.addEventListener("click", () => {
   const collapsed = controlsEl.classList.toggle("collapsed");
   panelCollapse.textContent = collapsed ? "＋" : "－";
   panelCollapse.title = collapsed ? "展开控制面板" : "收起控制面板";
+  persist();
 });
 
 // ---------- 背景音乐（太空氛围纯音乐）----------
@@ -1119,6 +1125,7 @@ function reflectMusicBtn() {
 musicBtn.addEventListener("click", () => {
   musicWanted = music.toggle();
   reflectMusicBtn();
+  persist();
 });
 // 进入太阳系即播放：浏览器要求用户首次交互后才能出声，故在首个手势时启动
 function primeMusic(e) {
@@ -1138,7 +1145,7 @@ window.addEventListener("keydown", primeMusic);
 // 音量滑块
 const musicVol = document.getElementById("music-vol");
 music.setVolume(Number(musicVol.value) / 100);
-musicVol.addEventListener("input", () => music.setVolume(Number(musicVol.value) / 100));
+musicVol.addEventListener("input", () => { music.setVolume(Number(musicVol.value) / 100); persist(); });
 
 // 氛围切换：深空 / 默认 / 星际旅行
 const moodWrap = document.getElementById("music-mood");
@@ -1148,6 +1155,7 @@ moodWrap.addEventListener("click", (e) => {
   if (!b) return;
   music.setMood(b.dataset.mood);
   for (const x of moodBtns) x.classList.toggle("active", x === b);
+  persist();
 });
 
 // 速度控制可折叠
@@ -1157,6 +1165,7 @@ speedCollapse.addEventListener("click", () => {
   const hidden = speedPanel.classList.toggle("collapsed");
   speedCollapse.setAttribute("aria-expanded", String(!hidden));
   speedCollapse.textContent = hidden ? "⏱ 速度 ▼" : "⏱ 速度 ▲";
+  persist();
 });
 
 // 设备自适应：小屏 / 触屏默认收起面板，进入即清爽，需要时点 ＋ 展开
@@ -1172,9 +1181,11 @@ if (smallScreen) {
 
 document.getElementById("toggle-orbits").addEventListener("change", (e) => {
   for (const obj of planetObjects) obj.orbit.visible = e.target.checked;
+  persist();
 });
 document.getElementById("toggle-labels").addEventListener("change", (e) => {
   labelRenderer.domElement.style.display = e.target.checked ? "block" : "none";
+  persist();
 });
 
 // 快速跳转按钮
@@ -1259,11 +1270,8 @@ for (const [el, v] of [[orbitsEl, prefs.orbits], [labelsEl, prefs.labels], [voic
 if (typeof prefs.panelCollapsed === "boolean") setPanelCollapsed(prefs.panelCollapsed);
 if (typeof prefs.speedCollapsed === "boolean") setSpeedCollapsed(prefs.speedCollapsed);
 
-// 任何控件变化后保存（点击在 class 切换后再快照）
-controlsEl.addEventListener("input", savePrefs);
-controlsEl.addEventListener("change", savePrefs);
-controlsEl.addEventListener("click", () => setTimeout(savePrefs, 0));
-musicBtn.addEventListener("click", () => setTimeout(savePrefs, 0));
+// 偏好已加载完毕：之后各 setter/handler 里的 persist() 才会真正写入
+prefsReady = true;
 
 // ---------- 自适应窗口 ----------
 window.addEventListener("resize", () => {

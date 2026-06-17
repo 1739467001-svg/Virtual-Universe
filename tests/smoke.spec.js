@@ -75,6 +75,9 @@ test("设置刷新后保持", async ({ page }) => {
   await expandSpeedPanel(page);
   await page.locator('#speed-presets button[data-speed="20"]').click();
   await expect(page.locator("#speed-val")).toHaveText("20×");
+  // 确认已写入 localStorage（区分"保存失败"与"读取失败"）
+  const saved = await page.evaluate(() => localStorage.getItem("vu_prefs"));
+  expect(saved || "", "localStorage 应已保存 speed=20").toContain('"speed":20');
   await page.reload({ waitUntil: "load" });
   await page.waitForSelector("#loading.hidden", { timeout: 30_000 });
   await expect(page.locator("#speed-val")).toHaveText("20×"); // 刷新后仍是 20×
