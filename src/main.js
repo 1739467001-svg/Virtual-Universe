@@ -1133,6 +1133,21 @@ function primeMusic(e) {
 window.addEventListener("pointerdown", primeMusic);
 window.addEventListener("keydown", primeMusic);
 
+// 音量滑块
+const musicVol = document.getElementById("music-vol");
+music.setVolume(Number(musicVol.value) / 100);
+musicVol.addEventListener("input", () => music.setVolume(Number(musicVol.value) / 100));
+
+// 氛围切换：深空 / 默认 / 星际旅行
+const moodWrap = document.getElementById("music-mood");
+const moodBtns = [...moodWrap.querySelectorAll("button")];
+moodWrap.addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  music.setMood(b.dataset.mood);
+  for (const x of moodBtns) x.classList.toggle("active", x === b);
+});
+
 // 速度控制可折叠
 const speedPanel = document.getElementById("speed-panel");
 const speedCollapse = document.getElementById("speed-collapse");

@@ -63,6 +63,15 @@
       <label><input id="toggle-labels" type="checkbox" checked /> 标签</label>
       <label><input id="toggle-voice" type="checkbox" checked /> 语音解说</label>
     </div>
+    <div class="row">
+      <span class="label">音乐</span>
+      <input id="music-vol" type="range" min="0" max="100" value="60" />
+      <span id="music-mood">
+        <button data-mood="deep">🌌 深空</button>
+        <button data-mood="default" class="active">🎵 默认</button>
+        <button data-mood="travel">🚀 星际旅行</button>
+      </span>
+    </div>
     <div class="row" id="planet-jump"></div>
   </div>
 
