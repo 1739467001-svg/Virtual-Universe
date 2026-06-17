@@ -4,6 +4,12 @@ import { test, expect } from "@playwright/test";
 const IGNORE = [/favicon/i, /SwiftShader/i, /Automatic fallback to software WebGL/i];
 const isNoise = (t) => IGNORE.some((re) => re.test(t));
 
+// 小屏/触屏默认折叠控制面板，交互前先展开
+async function expandPanel(page) {
+  const collapsed = await page.locator("#controls").evaluate((el) => el.classList.contains("collapsed"));
+  if (collapsed) await page.locator("#panel-collapse").click();
+}
+
 test("加载无报错 + 关键交互 + 截图", async ({ page }, info) => {
   const errors = [];
   page.on("console", (m) => { if (m.type() === "error" && !isNoise(m.text())) errors.push(m.text()); });
@@ -23,7 +29,8 @@ test("加载无报错 + 关键交互 + 截图", async ({ page }, info) => {
     `自由飞行按钮在 ${info.project.name} 应${touch ? "隐藏" : "显示"}`
   ).toBeVisible({ visible: !touch });
 
-  // 导览：打开 → 字幕条出现 → 下一站 → 暂停
+  // 导览：打开 → 字幕条出现 → 下一站 → 暂停（小屏先展开面板）
+  await expandPanel(page);
   await page.locator("#tour-toggle").click();
   await expect(page.locator("#tour-bar")).toBeVisible();
   await expect(page.locator("#tour-subtitle")).not.toBeEmpty();
@@ -45,6 +52,7 @@ test("木星特写截图", async ({ page }, info) => {
   await page.goto("/", { waitUntil: "load" });
   await page.waitForSelector("#loading.hidden", { timeout: 30_000 });
   await page.waitForTimeout(1500);
+  await expandPanel(page);
   // 点击行星跳转里的「木星」按钮，飞抵并悬停
   await page.getByRole("button", { name: "木星", exact: true }).click();
   await page.waitForTimeout(3500); // 等飞抵动画(1.6s)+稳定

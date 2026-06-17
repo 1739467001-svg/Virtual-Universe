@@ -1157,6 +1157,17 @@ speedCollapse.addEventListener("click", () => {
   speedCollapse.textContent = hidden ? "⏱ 速度 ▼" : "⏱ 速度 ▲";
 });
 
+// 设备自适应：小屏 / 触屏默认收起面板，进入即清爽，需要时点 ＋ 展开
+const smallScreen = window.matchMedia("(max-width: 760px), (pointer: coarse)").matches;
+if (smallScreen) {
+  controlsEl.classList.add("collapsed");
+  panelCollapse.textContent = "＋";
+  panelCollapse.title = "展开控制面板";
+  speedPanel.classList.add("collapsed");
+  speedCollapse.setAttribute("aria-expanded", "false");
+  speedCollapse.textContent = "⏱ 速度 ▼";
+}
+
 document.getElementById("toggle-orbits").addEventListener("change", (e) => {
   for (const obj of planetObjects) obj.orbit.visible = e.target.checked;
 });
