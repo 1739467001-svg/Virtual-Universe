@@ -25,7 +25,9 @@
       <button id="fly-toggle" title="自由飞行：以飞船视角在太阳系中漫游">🚀 自由飞行</button>
       <button id="ephemeris-align" title="把行星对齐到今天的真实角位置">📅 真实星历</button>
       <button id="tour-toggle" title="自动导览：依次飞向每颗行星并讲解">🎬 导览</button>
+      <button id="speed-collapse" title="展开 / 收起速度控制" aria-expanded="true">⏱ 速度 ▲</button>
     </div>
+    <div id="speed-panel">
     <div class="row">
       <span class="label">公转</span>
       <input id="speed" type="range" min="0" max="500" value="5" />
@@ -52,6 +54,7 @@
         <button data-spin="5">5×</button>
         <button data-spin="10">10×</button>
       </span>
+    </div>
     </div>
     <div class="row">
       <label><input id="toggle-orbits" type="checkbox" checked /> 轨道线</label>

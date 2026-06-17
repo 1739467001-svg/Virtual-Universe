@@ -1095,6 +1095,15 @@ spinPresetWrap.addEventListener("click", (e) => {
 });
 setSpinSpeed(state.spinSpeed); // 初始化高亮（默认 1×）
 
+// 速度控制可折叠
+const speedPanel = document.getElementById("speed-panel");
+const speedCollapse = document.getElementById("speed-collapse");
+speedCollapse.addEventListener("click", () => {
+  const hidden = speedPanel.classList.toggle("collapsed");
+  speedCollapse.setAttribute("aria-expanded", String(!hidden));
+  speedCollapse.textContent = hidden ? "⏱ 速度 ▼" : "⏱ 速度 ▲";
+});
+
 document.getElementById("toggle-orbits").addEventListener("change", (e) => {
   for (const obj of planetObjects) obj.orbit.visible = e.target.checked;
 });
