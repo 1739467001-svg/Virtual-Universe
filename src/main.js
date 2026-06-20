@@ -476,27 +476,144 @@ for (const p of [...PLANETS, ...DWARFS]) {
 }
 
 // ---------- 小行星带（火星 ↔ 木星之间）----------
-function createAsteroidBelt(count = 1500, rInner = 48, rOuter = 56) {
-  const geo = new THREE.BufferGeometry();
-  const positions = new Float32Array(count * 3);
-  for (let i = 0; i < count; i++) {
-    const r = rInner + Math.random() * (rOuter - rInner);
-    const a = Math.random() * Math.PI * 2;
-    positions[i * 3] = Math.cos(a) * r;
-    positions[i * 3 + 1] = (Math.random() - 0.5) * 2.5; // 轻微厚度
-    positions[i * 3 + 2] = Math.sin(a) * r;
+// 真实化要点：①真正的 3D 碎石(InstancedMesh)而非方块点 ②差速公转(开普勒,内快外慢)
+// ③中间密两侧疏 + 柯克伍德空隙 ④叠一层圆形尘埃烘托海量微粒
+const BELT_R_INNER = 47, BELT_R_OUTER = 57;
+// 带内代表性天体谷神星：r≈53、公转 4.6 年 —— 以此为基准用开普勒定律推每颗碎石的角速度
+const BELT_REF_R = 53, BELT_REF_PERIOD = 4.6;
+// 柯克伍德空隙（与木星共振处碎石被清空），用归一化半径[0,1]近似标注
+const KIRKWOOD_GAPS = [0.28, 0.55, 0.74];
+
+// 一颗不规则碎石：在二十面体顶点上做随机位移，得到棱角分明的岩块
+function makeRockGeometry() {
+  const geo = new THREE.IcosahedronGeometry(1, 1);
+  const pos = geo.attributes.position;
+  const v = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i).multiplyScalar(0.75 + Math.random() * 0.5);
+    pos.setXYZ(i, v.x, v.y, v.z);
   }
-  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  const belt = new THREE.Points(
-    geo,
-    new THREE.PointsMaterial({ color: 0x9b8f7a, size: 0.6, sizeAttenuation: true })
-  );
-  // 让整条带子缓慢自转
-  belt.userData.spin = 0.02;
-  return belt;
+  geo.computeVertexNormals();
+  return geo;
 }
-const asteroidBelt = createAsteroidBelt();
+
+// 采样一个落在带内、且避开柯克伍德空隙、中间偏密的半径
+function sampleBeltRadius() {
+  for (let tries = 0; tries < 8; tries++) {
+    // 两次均匀取平均 → 中间密、边缘疏（近似三角分布）
+    const t = (Math.random() + Math.random()) / 2;
+    let inGap = false;
+    for (const g of KIRKWOOD_GAPS) if (Math.abs(t - g) < 0.025) { inGap = true; break; }
+    if (inGap && Math.random() < 0.85) continue; // 空隙处大概率重采样
+    return BELT_R_INNER + t * (BELT_R_OUTER - BELT_R_INNER);
+  }
+  return BELT_R_INNER + Math.random() * (BELT_R_OUTER - BELT_R_INNER);
+}
+
+function createAsteroidBelt(count) {
+  const group = new THREE.Group();
+  const rock = makeRockGeometry();
+  const mat = new THREE.MeshStandardMaterial({ color: 0x8a7d6b, roughness: 1, metalness: 0, flatShading: true });
+  const mesh = new THREE.InstancedMesh(rock, mat, count);
+  mesh.frustumCulled = false; // 带子环绕全场，避免整体被裁掉
+
+  // 每颗碎石的轨道与翻滚参数
+  const radius = new Float32Array(count);
+  const angle = new Float32Array(count);     // 当前公转角
+  const omega = new Float32Array(count);      // 公转角速度(rad/天)
+  const yOff = new Float32Array(count);       // 垂直偏移(带有厚度)
+  const tumbleAxis = [];                       // 各自翻滚轴
+  const tumbleRate = new Float32Array(count); // 翻滚角速度
+  const tumbleAng = new Float32Array(count);  // 当前翻滚角
+  const scaleVec = [];                         // 非均匀缩放，制造形态差异
+
+  for (let i = 0; i < count; i++) {
+    const r = sampleBeltRadius();
+    radius[i] = r;
+    angle[i] = Math.random() * Math.PI * 2;
+    // 开普勒第三定律：T ∝ r^1.5（以谷神星为基准）→ ω = 2π/(T·365)
+    const period = BELT_REF_PERIOD * Math.pow(r / BELT_REF_R, 1.5);
+    omega[i] = (Math.PI * 2) / (period * 365);
+    // 越往中心带越薄，整体扁平
+    yOff[i] = (Math.random() - 0.5) * 2.4 * (0.5 + Math.random() * 0.5);
+    const ax = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
+    tumbleAxis.push(ax);
+    tumbleRate[i] = (Math.random() - 0.5) * 0.6;
+    tumbleAng[i] = Math.random() * Math.PI * 2;
+    // 多数是小碎石，少数较大块；非均匀缩放让外形不像规则球
+    const base = 0.10 + Math.pow(Math.random(), 3) * 0.55;
+    scaleVec.push(new THREE.Vector3(
+      base * (0.7 + Math.random() * 0.6),
+      base * (0.7 + Math.random() * 0.6),
+      base * (0.7 + Math.random() * 0.6)
+    ));
+  }
+
+  mesh.userData = { radius, angle, omega, yOff, tumbleAxis, tumbleRate, tumbleAng, scaleVec, count };
+  group.add(mesh);
+  group.userData.mesh = mesh;
+
+  // 叠加一层「圆形」尘埃点，烘托海量微粒（廉价、刚体缓转）
+  const dustCount = Math.floor(count * 2.2);
+  const dpos = new Float32Array(dustCount * 3);
+  for (let i = 0; i < dustCount; i++) {
+    const r = sampleBeltRadius();
+    const a = Math.random() * Math.PI * 2;
+    dpos[i * 3] = Math.cos(a) * r;
+    dpos[i * 3 + 1] = (Math.random() - 0.5) * 2.4;
+    dpos[i * 3 + 2] = Math.sin(a) * r;
+  }
+  const dgeo = new THREE.BufferGeometry();
+  dgeo.setAttribute("position", new THREE.BufferAttribute(dpos, 3));
+  const dust = new THREE.Points(dgeo, new THREE.PointsMaterial({
+    color: 0x9b8f7a, size: 0.5, sizeAttenuation: true,
+    map: makeDustSprite(), transparent: true, depthWrite: false, opacity: 0.7,
+  }));
+  dust.userData.spin = 0.015;
+  group.add(dust);
+  group.userData.dust = dust;
+  return group;
+}
+
+// 圆形尘埃贴图（径向渐变），让点不再是方块
+function makeDustSprite() {
+  const s = 32, c = document.createElement("canvas");
+  c.width = c.height = s;
+  const ctx = c.getContext("2d");
+  const g = ctx.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+  g.addColorStop(0, "rgba(255,255,255,1)");
+  g.addColorStop(0.5, "rgba(255,255,255,0.6)");
+  g.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, s, s);
+  const tex = new THREE.CanvasTexture(c);
+  return tex;
+}
+
+const asteroidBelt = createAsteroidBelt(isMobile ? 650 : 1400);
 scene.add(asteroidBelt);
+
+// 复用对象，逐帧更新每颗碎石的位置与翻滚（仅在播放时）
+const _astDummy = new THREE.Object3D();
+const _astQuat = new THREE.Quaternion();
+function updateAsteroidBelt(dayStep, dt) {
+  const mesh = asteroidBelt.userData.mesh;
+  const u = mesh.userData;
+  for (let i = 0; i < u.count; i++) {
+    u.angle[i] += u.omega[i] * dayStep;       // 差速公转
+    u.tumbleAng[i] += u.tumbleRate[i] * dt;   // 各自翻滚
+    const r = u.radius[i], a = u.angle[i];
+    _astDummy.position.set(Math.cos(a) * r, u.yOff[i], Math.sin(a) * r);
+    _astQuat.setFromAxisAngle(u.tumbleAxis[i], u.tumbleAng[i]);
+    _astDummy.quaternion.copy(_astQuat);
+    _astDummy.scale.copy(u.scaleVec[i]);
+    _astDummy.updateMatrix();
+    mesh.setMatrixAt(i, _astDummy.matrix);
+  }
+  mesh.instanceMatrix.needsUpdate = true;
+  asteroidBelt.userData.dust.rotation.y += dt * asteroidBelt.userData.dust.userData.spin;
+}
+updateAsteroidBelt(0, 0); // 初始摆放，暂停时也能正确显示
 
 // ---------- 天体集合 + 邻近/碰撞检测（供自由飞行、雷达、飞抵动画共用）----------
 const bodyMeshes = [sunMesh, ...planetObjects.map((o) => o.mesh)];
@@ -1008,8 +1125,8 @@ function animate() {
 
     // 太阳自转
     sunMesh.rotation.y += dt * 0.1;
-    // 小行星带缓慢公转
-    asteroidBelt.rotation.y += dt * asteroidBelt.userData.spin;
+    // 小行星带：差速公转 + 各自翻滚
+    updateAsteroidBelt(dayStep, dt);
 
     for (const obj of planetObjects) {
       const { body, pivot, mesh, clouds, atmo, spot } = obj;
