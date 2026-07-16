@@ -1,5 +1,7 @@
 # 依赖（本项目把 Three.js 直接 vendor 进 vendor/，无需 node_modules）
 node_modules/
+# 不锁定依赖版本：CI 用 npm install，本地生成的 lockfile 不入库
+package-lock.json
 
 # 系统 / 编辑器
 .DS_Store
