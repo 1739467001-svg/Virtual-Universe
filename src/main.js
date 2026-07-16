@@ -83,6 +83,8 @@ const fly = {
   pitch: 0,
   keys: Object.create(null),
   vel: new THREE.Vector3(),
+  // 触屏输入（虚拟摇杆 + 升降/加速按钮）：模拟量 mx/my ∈ [-1,1]
+  touch: { mx: 0, my: 0, up: false, down: false, boost: false },
 };
 
 function enterFlyMode() {
@@ -95,14 +97,23 @@ function enterFlyMode() {
   fly.yaw = e.y;
   fly.pitch = e.x;
   document.getElementById("fly-toggle").classList.add("active");
-  document.getElementById("fly-hint").classList.remove("hidden");
-  renderer.domElement.requestPointerLock?.();
+  const hint = document.getElementById("fly-hint");
+  hint.textContent = isMobile
+    ? "🚀 自由飞行中：左摇杆平移 · 右侧拖动转向 · ▲▼ 升降 · 🚀 加速 · 点行星名飞抵 · 再点 🚀 退出"
+    : "🚀 自由飞行中：W/S 前后 · A/D 左右 · Q/E 升降 · Shift 加速 · 移动鼠标转向 · 滚轮调速 · ESC 退出";
+  hint.classList.remove("hidden");
+  if (isMobile) {
+    document.getElementById("touch-controls").classList.remove("hidden"); // 显示触屏摇杆
+  } else {
+    renderer.domElement.requestPointerLock?.();                          // 桌面走指针锁定
+  }
 }
 
 function exitFlyMode() {
   if (!fly.active) return;
   fly.active = false;
   fly.keys = Object.create(null);
+  fly.touch = { mx: 0, my: 0, up: false, down: false, boost: false };
   fly.vel.set(0, 0, 0);
   controls.enabled = true;
   controls.target.copy(camera.position).add(
@@ -110,6 +121,8 @@ function exitFlyMode() {
   );
   document.getElementById("fly-toggle").classList.remove("active");
   document.getElementById("fly-hint").classList.add("hidden");
+  document.getElementById("touch-controls").classList.add("hidden");
+  window.resetJoystickKnob?.(); // 复位摇杆帽（仅移动端存在）
   if (document.pointerLockElement) document.exitPointerLock();
 }
 
@@ -142,6 +155,85 @@ renderer.domElement.addEventListener("wheel", (e) => {
   fly.speed = Math.max(4, Math.min(400, fly.speed * (e.deltaY < 0 ? 1.15 : 0.87)));
 }, { passive: false });
 
+// ---------- 触屏摇杆 / 转向（移动端自由飞行）----------
+// 只在移动端绑定；桌面端走键鼠 + 指针锁定，互不干扰。
+if (isMobile) {
+  // 左下虚拟摇杆：触摸位移换算成 mx/my ∈ [-1,1]（超出半径归一化）
+  const joy = document.getElementById("joystick");
+  const knob = document.getElementById("joystick-knob");
+  const JOY_R = 46; // 摇杆帽最大位移半径（px）
+  let joyId = null; // 跟踪当前控制摇杆的触点，支持多指并发（一指摇杆 + 一指转向）
+
+  function setKnob(dx, dy) { knob.style.transform = `translate(${dx}px, ${dy}px)`; }
+  window.resetJoystickKnob = () => { setKnob(0, 0); }; // 供 exitFlyMode 复位
+
+  function joyMove(cx, cy) {
+    const rect = joy.getBoundingClientRect();
+    let dx = cx - (rect.left + rect.width / 2);
+    let dy = cy - (rect.top + rect.height / 2);
+    const len = Math.hypot(dx, dy);
+    if (len > JOY_R) { dx = dx / len * JOY_R; dy = dy / len * JOY_R; }
+    setKnob(dx, dy);
+    fly.touch.mx = dx / JOY_R;   // 右为正 → 右移
+    fly.touch.my = -dy / JOY_R;  // 上为正 → 前进
+  }
+  joy.addEventListener("touchstart", (e) => {
+    e.preventDefault();
+    const t = e.changedTouches[0];
+    joyId = t.identifier;
+    joyMove(t.clientX, t.clientY);
+  }, { passive: false });
+  joy.addEventListener("touchmove", (e) => {
+    e.preventDefault();
+    for (const t of e.changedTouches) if (t.identifier === joyId) joyMove(t.clientX, t.clientY);
+  }, { passive: false });
+  function joyEnd(e) {
+    for (const t of e.changedTouches) if (t.identifier === joyId) {
+      joyId = null; fly.touch.mx = 0; fly.touch.my = 0; setKnob(0, 0);
+    }
+  }
+  joy.addEventListener("touchend", joyEnd);
+  joy.addEventListener("touchcancel", joyEnd);
+
+  // 升降 / 加速按钮：按住即生效
+  const holdBtn = (id, prop) => {
+    const el = document.getElementById(id);
+    const on = (e) => { e.preventDefault(); fly.touch[prop] = true; el.classList.add("pressed"); };
+    const off = () => { fly.touch[prop] = false; el.classList.remove("pressed"); };
+    el.addEventListener("touchstart", on, { passive: false });
+    el.addEventListener("touchend", off);
+    el.addEventListener("touchcancel", off);
+  };
+  holdBtn("touch-up", "up");
+  holdBtn("touch-down", "down");
+  holdBtn("touch-boost", "boost");
+
+  // 画面拖拽转向：飞行中，落在画布上的触点（摇杆/按钮已各自吞掉自己的触点）拖动即转向
+  let lookId = null, lastX = 0, lastY = 0;
+  renderer.domElement.addEventListener("touchstart", (e) => {
+    if (!fly.active || lookId !== null) return;
+    const t = e.changedTouches[0];
+    lookId = t.identifier; lastX = t.clientX; lastY = t.clientY;
+  }, { passive: true });
+  renderer.domElement.addEventListener("touchmove", (e) => {
+    if (!fly.active || lookId === null) return;
+    for (const t of e.changedTouches) {
+      if (t.identifier !== lookId) continue;
+      const sens = 0.005;
+      fly.yaw -= (t.clientX - lastX) * sens;
+      fly.pitch -= (t.clientY - lastY) * sens;
+      const lim = Math.PI / 2 - 0.01;
+      fly.pitch = Math.max(-lim, Math.min(lim, fly.pitch));
+      lastX = t.clientX; lastY = t.clientY;
+    }
+  }, { passive: true });
+  const lookEnd = (e) => {
+    for (const t of e.changedTouches) if (t.identifier === lookId) lookId = null;
+  };
+  renderer.domElement.addEventListener("touchend", lookEnd);
+  renderer.domElement.addEventListener("touchcancel", lookEnd);
+}
+
 function updateFly(dt) {
   // 朝向：由 yaw/pitch 合成（YXZ 顺序，先偏航后俯仰）
   camera.quaternion.setFromEuler(new THREE.Euler(fly.pitch, fly.yaw, 0, "YXZ"));
@@ -152,16 +244,28 @@ function updateFly(dt) {
 
   const dir = new THREE.Vector3();
   const k = fly.keys;
+  const tc = fly.touch;
   if (k.KeyW || k.ArrowUp) dir.add(forward);
   if (k.KeyS || k.ArrowDown) dir.sub(forward);
   if (k.KeyD || k.ArrowRight) dir.add(right);
   if (k.KeyA || k.ArrowLeft) dir.sub(right);
-  if (k.KeyE || k.Space) dir.add(up);
-  if (k.KeyQ) dir.sub(up);
+  if (k.KeyE || k.Space || tc.up) dir.add(up);
+  if (k.KeyQ || tc.down) dir.sub(up);
+  // 触屏摇杆的模拟量（前后 + 左右）
+  dir.addScaledVector(forward, tc.my);
+  dir.addScaledVector(right, tc.mx);
 
-  const boost = (k.ShiftLeft || k.ShiftRight) ? 4 : 1;
+  // 油门：键盘/升降按钮为满油门，摇杆按推杆幅度给（支持轻推缓行）
+  const analog = Math.min(1, Math.hypot(tc.mx, tc.my));
+  const keyActive = dir.lengthSq() > 0 && (analog === 0
+    ? true
+    : (k.KeyW || k.KeyS || k.KeyA || k.KeyD || k.KeyE || k.KeyQ || k.Space ||
+       k.ArrowUp || k.ArrowDown || k.ArrowLeft || k.ArrowRight || tc.up || tc.down));
+  const throttle = Math.max(keyActive ? 1 : 0, analog);
+
+  const boost = (k.ShiftLeft || k.ShiftRight || tc.boost) ? 4 : 1;
   const target = dir.lengthSq() > 0
-    ? dir.normalize().multiplyScalar(fly.speed * boost)
+    ? dir.normalize().multiplyScalar(fly.speed * boost * throttle)
     : new THREE.Vector3();
 
   // 靠近天体时自动减速，便于细看与环绕
@@ -1284,11 +1388,7 @@ for (const b of allBodies) {
   jumpRow.appendChild(btn);
 }
 
-// 触屏设备隐藏「自由飞行」：它依赖指针锁定 + WASD 键盘，移动端无法操作
-if (isMobile) {
-  document.getElementById("fly-toggle").style.display = "none";
-  document.getElementById("fly-hint").style.display = "none";
-}
+// 移动端保留「自由飞行」：改用触屏虚拟摇杆 + 拖拽转向操作（见上方触屏摇杆绑定）
 
 // 导览顺序：太阳 → 八大行星（矮行星不纳入，保持节奏紧凑）
 tour.seq = [sunMesh, ...planetObjects.filter((o) => !o.body.dwarf).map((o) => o.mesh)];

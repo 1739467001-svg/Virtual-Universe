@@ -29,11 +29,22 @@ test("加载无报错 + 关键交互 + 截图", async ({ page }, info) => {
 
   const touch = info.project.name !== "Desktop";
 
-  // 设备相关断言：触屏设备应隐藏「自由飞行」（依赖键鼠，移动端不可用）
+  // 「自由飞行」在所有设备都可用：桌面走键鼠，移动端走触屏虚拟摇杆
+  // （小屏面板默认折叠，先展开再断言按钮可见）
+  await expandPanel(page);
   await expect(
     page.locator("#fly-toggle"),
-    `自由飞行按钮在 ${info.project.name} 应${touch ? "隐藏" : "显示"}`
-  ).toBeVisible({ visible: !touch });
+    `自由飞行按钮在 ${info.project.name} 应显示`
+  ).toBeVisible();
+
+  // 触屏设备：进入自由飞行应弹出虚拟摇杆，退出应收起
+  if (touch) {
+    await page.locator("#fly-toggle").click();
+    await expect(page.locator("#touch-controls"), "移动端进入飞行应显示触屏摇杆").toBeVisible();
+    await expect(page.locator("#joystick")).toBeVisible();
+    await page.locator("#fly-toggle").click(); // 再点退出
+    await expect(page.locator("#touch-controls"), "退出飞行应收起触屏摇杆").toBeHidden();
+  }
 
   // 导览：打开 → 字幕条出现 → 下一站 → 暂停（小屏先展开面板）
   await expandPanel(page);
