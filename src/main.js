@@ -806,12 +806,46 @@ const tourEls = {
 };
 controls.autoRotateSpeed = 0.8; // 导览环绕镜头的转速(温和)
 
-// 语音：显式选中文嗓音 + 等待 voiceschanged + keepalive(治 Chrome「只响第一句/中途停」)
+// 语音：优选「最不 AI」的中文嗓音 + 等待 voiceschanged + keepalive(治 Chrome「只响第一句/中途停」)
 let _zhVoice = null;
+// 各平台的自然/神经网络嗓音关键词（越靠前分越高），命中即优先，避开老式机械音
+const VOICE_PREFER = [
+  // 微软 Azure Neural（最自然，女声/男声）
+  "Xiaoxiao", "Xiaoyi", "Yunxi", "Yunjian", "Yunyang", "晓晓", "云希", "云扬",
+  // Google 在线普通话
+  "Google 普通话", "Google Mandarin",
+  // 苹果 macOS/iOS 中文嗓音
+  "Tingting", "Ting-Ting", "婷婷", "Meijia", "美佳", "Sinji", "Li-mu",
+];
+// 明显机械、优先级压到最低的老式嗓音
+const VOICE_AVOID = ["Huihui", "Kangkang", "Yaoyao", "eSpeak", "espeak"];
+function scoreVoice(v) {
+  const tag = `${v.name} ${v.lang}`;
+  let s = 0;
+  // 中文优先（普通话 > 其它中文）
+  if (/cmn|zh[-_]?CN|普通话|Mandarin/i.test(tag)) s += 100;
+  else if (/zh|Chinese|中文|粤|香港|台/i.test(tag)) s += 60;
+  else return -1; // 非中文直接淘汰
+  // 命中偏好列表：越靠前分越高
+  const pi = VOICE_PREFER.findIndex((k) => tag.includes(k));
+  if (pi >= 0) s += 80 - pi * 2;
+  // 关键词加权：Neural/Natural/在线 通常更自然
+  if (/Neural|Natural/i.test(tag)) s += 40;
+  if (v.localService === false) s += 20; // 在线嗓音通常比本地合成更自然
+  // 机械老嗓音降权
+  if (VOICE_AVOID.some((k) => new RegExp(k, "i").test(tag))) s -= 90;
+  return s;
+}
 function pickVoice() {
   if (!("speechSynthesis" in window)) return;
   const vs = window.speechSynthesis.getVoices();
-  _zhVoice = vs.find((v) => /zh|cmn|Chinese|普通话/i.test(`${v.lang} ${v.name}`)) || _zhVoice;
+  if (!vs.length) return;
+  let best = _zhVoice, bestScore = _zhVoice ? scoreVoice(_zhVoice) : -1;
+  for (const v of vs) {
+    const s = scoreVoice(v);
+    if (s > bestScore) { best = v; bestScore = s; }
+  }
+  if (best) _zhVoice = best;
 }
 if ("speechSynthesis" in window) {
   pickVoice();
@@ -833,7 +867,9 @@ function speak(body) {
     const u = new SpeechSynthesisUtterance(`${body.name}。${body.desc}`);
     u.lang = "zh-CN";
     if (_zhVoice) u.voice = _zhVoice;
-    u.rate = 1.0;
+    u.rate = 0.94;  // 略慢，语气更从容自然，减少机械感
+    u.pitch = 1.02; // 音高略提，声音更温暖
+    u.volume = 1.0;
     _utter = u;
     synth.speak(u);
   }, 150);
